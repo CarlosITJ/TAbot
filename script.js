@@ -2897,44 +2897,20 @@ async function analyzeDocumentsWithAI(userMessage) {
             context += `Tipo MIME: ${doc.mimeType}\n`;
             context += `Tamaño total: ${doc.content.length} caracteres\n`;
 
-            // Agregar información de estructura si está disponible (análisis avanzado)
+            // Agregar información de estructura de forma discreta (solo para que la IA la use)
             if (doc.structure) {
-                // Para Excel/Sheets
+                // Información de columnas para Excel (útil para consultas sobre estados, etc.)
                 if (doc.structure.columns) {
-                    const excelColumns = doc.structure.columns.filter(col => col.category !== 'unknown' && col.confidence > 0.5);
-                    if (excelColumns.length > 0) {
-                        context += `📊 Columnas detectadas: ${excelColumns.map(col => `${col.name} (${col.category})`).join(', ')}\n`;
-                    }
-
-                    // Información específica sobre columnas categóricas
                     const categoricalColumns = doc.structure.columns.filter(col =>
                         ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
                     );
                     if (categoricalColumns.length > 0) {
-                        context += `🏷️ Columnas categóricas: `;
+                        context += `Información de columnas: `;
                         categoricalColumns.forEach(col => {
-                            const values = Array.from(col.uniqueValues).slice(0, 5).join('/');
-                            context += `${col.name}(${values}${col.uniqueCount > 5 ? '...' : ''}) `;
+                            const values = Array.from(col.uniqueValues).slice(0, 5).join(', ');
+                            context += `${col.name}: ${values}${col.uniqueCount > 5 ? ' (y más)' : ''}; `;
                         });
                         context += '\n';
-                    }
-                }
-
-                // Para Google Docs / PDF / Word - información de estructura de documentos
-                if (doc.structure.sections || doc.structure.headings || doc.structure.tables || doc.structure.lists) {
-                    const elements = [];
-                    if (doc.structure.headings?.length > 0) elements.push(`${doc.structure.headings.length} encabezados`);
-                    if (doc.structure.tables?.length > 0) elements.push(`${doc.structure.tables.length} tablas`);
-                    if (doc.structure.lists?.length > 0) elements.push(`${doc.structure.lists.length} listas`);
-                    if (doc.structure.sections?.length > 1) elements.push(`${doc.structure.sections.length} secciones`);
-
-                    if (elements.length > 0) {
-                        context += `📄 Estructura detectada: ${elements.join(', ')}\n`;
-                    }
-
-                    // Para PDFs - información de páginas
-                    if (doc.structure.totalPages) {
-                        context += `📑 ${doc.structure.totalPages} páginas analizadas\n`;
                     }
                 }
             }
@@ -2950,36 +2926,32 @@ async function analyzeDocumentsWithAI(userMessage) {
         const messages = [
             {
                 role: 'system',
-                content: `Eres un asistente inteligente especializado en analizar documentos procesados con análisis avanzado de estructura.
+                content: `Eres un asistente inteligente especializado en analizar documentos con respuestas claras y útiles.
 
-CAPACIDADES ESPECIALES DE ANÁLISIS:
-- **Excel/Sheets**: Detecta automáticamente columnas como "Status", "Priority", "Category", etc. con información sobre "📊 Columnas detectadas" o "🏷️ Columnas categóricas"
-- **Google Docs**: Identifica encabezados, secciones, tablas y listas con información sobre "📄 Estructura detectada"
-- **PDFs**: Analiza páginas individuales, detecta tablas, listas y secciones con información sobre páginas analizadas
-- **Word Documents**: Detecta encabezados, párrafos estructurados, tablas y elementos de formato
-- **Presentaciones**: Similar al análisis de documentos con estructura de diapositivas
+INSTRUCCIONES IMPORTANTES:
+- Proporciona respuestas DIRECTAS y CONCISAS a las preguntas del usuario
+- USA la información estructural de los documentos (columnas detectadas, etc.) para dar respuestas inteligentes
+- NO menciones detalles técnicos internos como "columnas detectadas", "análisis avanzado", etc.
+- NO expliques cómo analizaste los documentos - solo da la respuesta
+- Si la información está incompleta, indica claramente qué tienes y qué falta
+- Mantén un tono profesional pero conversacional
+- Si no puedes responder completamente, sugiere qué información adicional sería útil
 
-Puedes usar esta información estructural para hacer consultas más inteligentes sobre cualquier tipo de documento.
+ESTILO DE RESPUESTAS:
+- Directo: "Según el documento, hay 15 roles abiertos..."
+- Informativo: Resume los datos clave sin detalles técnicos
+- Útil: Proporciona contexto cuando ayude
+- Honesto: Admite limitaciones claramente
 
-REGLAS ESTRICTAS:
-1. SOLO puedes responder preguntas basándote en la información que está EXPLÍCITAMENTE contenida en los documentos proporcionados
-2. NO uses tu conocimiento general ni información externa a los documentos
-3. Si la respuesta NO está en los documentos, debes decir claramente: "No puedo responder esa pregunta porque la información no se encuentra en los documentos proporcionados"
-4. NO inventes, supongas o infierras información que no esté explícitamente en los documentos
-5. Si solo tienes información parcial en los documentos, indica qué información está disponible y qué no
-
-Tu objetivo es:
-- Responder SOLO con información que existe en los documentos
-- Citar o referenciar qué documento contiene la información
-- Ser claro cuando algo NO está en los documentos
-- Aprovechar la información de estructura de Excel cuando esté disponible para dar respuestas más contextuales
-- Proporcionar análisis ÚNICAMENTE basado en el contenido disponible
-
-Estilo: Profesional, preciso y honesto sobre las limitaciones de los documentos.`
+REGLAS DE CONTENIDO:
+1. SOLO responde con información explícitamente contenida en los documentos
+2. Si hay datos numéricos, preséntalos claramente
+3. Si hay información parcial, indica que es parcial
+4. NO inventes datos que no estén en los documentos`
             },
             {
                 role: 'user',
-                content: `${context}\n\nUsuario pregunta: ${userMessage}\n\nRecuerda: SOLO responde con información que esté contenida en los documentos anteriores. Si la respuesta no está en los documentos, indícalo claramente.`
+                content: `${context}\n\nPregunta del usuario: ${userMessage}\n\nProporciona una respuesta directa y clara basada únicamente en la información de los documentos.`
             }
         ];
         
