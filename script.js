@@ -28,8 +28,9 @@ let driveDocuments = [];
 let driveFolderId = null;
 
 // Constantes de configuración
-const MAX_DOC_PREVIEW_LENGTH = 2000; // Caracteres máximos por documento enviados a la IA
-const SEARCH_CONTEXT_LENGTH = 100; // Caracteres de contexto antes/después de una coincidencia
+const MAX_DOC_PREVIEW_LENGTH = 100000; // Caracteres máximos por documento enviados a la IA (100k chars ≈ 25k tokens)
+const TOTAL_CONTEXT_BUDGET = 400000; // Presupuesto total de caracteres para todos los documentos (~100k tokens, bien dentro del límite de 2M de Grok-4)
+const SEARCH_CONTEXT_LENGTH = 200; // Caracteres de contexto antes/después de una coincidencia (aumentado para mejor contexto)
 
 // Respuestas predefinidas del chatbot
 const responses = {
@@ -316,6 +317,51 @@ function processDocumentIds(idsText) {
     return files;
 }
 
+// Función auxiliar para parsear PDF usando PDF.js
+async function parsePDFContent(arrayBuffer) {
+    try {
+        // Configurar PDF.js worker
+        if (typeof pdfjsLib !== 'undefined') {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+            const loadingTask = pdfjsLib.getDocument({data: arrayBuffer});
+            const pdf = await loadingTask.promise;
+
+            let fullText = '';
+
+            // Extraer texto de cada página
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += `\n--- Página ${pageNum} ---\n${pageText}\n`;
+            }
+
+            return fullText.trim();
+        } else {
+            throw new Error('PDF.js no está cargado');
+        }
+    } catch (error) {
+        console.error('Error parseando PDF:', error);
+        throw new Error(`Error al parsear PDF: ${error.message}`);
+    }
+}
+
+// Función auxiliar para parsear DOCX usando mammoth.js
+async function parseDOCXContent(arrayBuffer) {
+    try {
+        if (typeof mammoth !== 'undefined') {
+            const result = await mammoth.extractRawText({arrayBuffer: arrayBuffer});
+            return result.value; // El texto extraído
+        } else {
+            throw new Error('mammoth.js no está cargado');
+        }
+    } catch (error) {
+        console.error('Error parseando DOCX:', error);
+        throw new Error(`Error al parsear DOCX: ${error.message}`);
+    }
+}
+
 // Función para leer el contenido de un archivo
 async function readFileContent(fileId, mimeType) {
     const accessToken = getAccessToken();
@@ -353,48 +399,81 @@ async function readFileContent(fileId, mimeType) {
         }
     }
     
-    // Para archivos de Microsoft Office (DOC, DOCX, XLS, XLSX) y PDFs
-    if (mimeType.includes('msword') || 
-        mimeType.includes('wordprocessingml') || 
-        mimeType.includes('excel') || 
-        mimeType.includes('spreadsheetml') ||
-        mimeType === 'application/pdf') {
-        
+    // Para archivos PDF - usar PDF.js para extracción mejorada
+    if (mimeType === 'application/pdf') {
         if (accessToken) {
             try {
-                // Para PDFs y archivos de Office, intentar exportar como texto
-                // Google Drive puede convertir algunos formatos automáticamente
-                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
-                console.log(`Intentando convertir ${mimeType} a texto`);
-                
+                console.log('📕 Procesando PDF con PDF.js...');
+                const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+                const response = await fetch(downloadUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const arrayBuffer = await response.arrayBuffer();
+                    const text = await parsePDFContent(arrayBuffer);
+                    console.log(`✅ PDF procesado: ${text.length} caracteres extraídos`);
+                    return text;
+                } else {
+                    throw new Error(`Error al descargar PDF: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('Error procesando PDF:', error);
+                throw new Error(`No se pudo leer el PDF: ${error.message}`);
+            }
+        }
+    }
+
+    // Para archivos DOCX - usar mammoth.js para extracción mejorada
+    if (mimeType.includes('wordprocessingml') || mimeType.includes('msword')) {
+        if (accessToken) {
+            try {
+                console.log('📘 Procesando DOCX con mammoth.js...');
+                const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+                const response = await fetch(downloadUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const arrayBuffer = await response.arrayBuffer();
+                    const text = await parseDOCXContent(arrayBuffer);
+                    console.log(`✅ DOCX procesado: ${text.length} caracteres extraídos`);
+                    return text;
+                } else {
+                    throw new Error(`Error al descargar DOCX: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('Error procesando DOCX:', error);
+                throw new Error(`No se pudo leer el DOCX: ${error.message}`);
+            }
+        }
+    }
+
+    // Para archivos Excel - seguir usando conversión de Google Drive
+    if (mimeType.includes('excel') || mimeType.includes('spreadsheetml')) {
+        if (accessToken) {
+            try {
+                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
+                console.log(`Convirtiendo Excel a CSV`);
+
                 const response = await fetch(exportUrl, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`
                     }
                 });
-                
+
                 if (response.ok) {
                     const content = await response.text();
-                    console.log(`Archivo Office/PDF convertido: ${content.length} caracteres`);
+                    console.log(`Excel convertido: ${content.length} caracteres`);
                     return content;
-                } else {
-                    // Si no se puede exportar, intentar descargar directamente
-                    console.log('No se pudo exportar, intentando descarga directa...');
-                    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-                    const downloadResponse = await fetch(downloadUrl, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`
-                        }
-                    });
-                    
-                    if (downloadResponse.ok) {
-                        // Para archivos binarios, advertir al usuario
-                        return `[Archivo ${mimeType} descargado pero requiere procesamiento especial para extraer texto. Considera convertirlo a Google Docs primero]`;
-                    }
                 }
             } catch (error) {
-                console.error('Error procesando archivo Office/PDF:', error);
-                throw new Error(`No se pudo leer el archivo ${mimeType}. Intenta abrirlo en Google Drive y convertirlo a Google Docs.`);
+                console.error('Error procesando Excel:', error);
+                throw new Error(`No se pudo leer el archivo Excel: ${error.message}`);
             }
         }
     }
@@ -589,10 +668,10 @@ async function callXAI(messages, temperature = 0.7) {
         });
         
         const requestBody = {
-            model: 'grok-2-1212',  // Modelo actualizado de xAI
+            model: 'grok-4-fast-reasoning',  // Modelo Grok-4 Fast optimizado para razonamiento (2M tokens context, más rápido y económico)
             messages: messages,
             temperature: temperature,
-            max_tokens: 1000,
+            max_tokens: 4000, // Aumentado para respuestas más completas
             stream: false
         };
         
@@ -649,15 +728,28 @@ async function analyzeDocumentsWithAI(userMessage) {
     }
     
     try {
-        // Construir contexto de los documentos
+        // Construir contexto de los documentos con gestión inteligente de presupuesto
         let context = "Tengo acceso a los siguientes documentos:\n\n";
-        
+
+        // Calcular presupuesto por documento de forma equitativa
+        const budgetPerDoc = Math.floor(TOTAL_CONTEXT_BUDGET / driveDocuments.length);
+        const actualBudgetPerDoc = Math.min(budgetPerDoc, MAX_DOC_PREVIEW_LENGTH);
+
+        let totalCharsUsed = 0;
+
         driveDocuments.forEach((doc, index) => {
-            // Limitar el contenido para no exceder límites de tokens
-            const preview = doc.content.substring(0, MAX_DOC_PREVIEW_LENGTH);
+            // Usar el presupuesto calculado, pero no más que el contenido disponible
+            const charsToUse = Math.min(actualBudgetPerDoc, doc.content.length);
+            const preview = doc.content.substring(0, charsToUse);
+
             context += `Documento ${index + 1}: "${doc.name}"\n`;
-            context += `Contenido: ${preview}${doc.content.length > MAX_DOC_PREVIEW_LENGTH ? '...' : ''}\n\n`;
+            context += `Tamaño total: ${doc.content.length} caracteres\n`;
+            context += `Contenido: ${preview}${doc.content.length > charsToUse ? '...\n[Contenido truncado por límite de contexto]' : ''}\n\n`;
+
+            totalCharsUsed += charsToUse;
         });
+
+        console.log(`📊 Contexto construido: ${totalCharsUsed} caracteres de ${TOTAL_CONTEXT_BUDGET} disponibles (${driveDocuments.length} documentos)`);
         
         // Crear mensajes para xAI
         const messages = [
