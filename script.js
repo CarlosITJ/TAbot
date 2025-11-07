@@ -734,6 +734,800 @@ function generateAnalysisSummary(structure) {
     return summary;
 }
 
+// ========================================
+// ADVANCED GOOGLE DOCS PARSING
+// ========================================
+
+// Función para parsear documentos de Google Docs con análisis avanzado
+function parseGoogleDocsAdvanced(textContent) {
+    try {
+        console.log('📄 Iniciando análisis avanzado de Google Docs...');
+
+        const lines = textContent.split('\n').filter(line => line.trim());
+        if (lines.length === 0) {
+            return {
+                content: textContent,
+                structure: null,
+                analysis: 'Documento vacío o sin contenido analizable'
+            };
+        }
+
+        // Analizar estructura del documento
+        const structure = analyzeDocumentStructure(lines);
+
+        console.log(`✅ Análisis completado: ${structure.sections.length} secciones, ${structure.tables.length} tablas, ${structure.lists.length} listas detectadas`);
+
+        return {
+            content: textContent,
+            structure: structure,
+            analysis: generateDocsAnalysisSummary(structure)
+        };
+
+    } catch (error) {
+        console.error('❌ Error en análisis avanzado de Google Docs:', error);
+        return {
+            content: textContent,
+            structure: null,
+            analysis: `Error en análisis: ${error.message}`
+        };
+    }
+}
+
+// Función para analizar la estructura de un documento
+function analyzeDocumentStructure(lines) {
+    const sections = [];
+    const tables = [];
+    const lists = [];
+    const headings = [];
+
+    let currentSection = { title: '', content: [], startLine: 0 };
+    let inTable = false;
+    let tableStart = -1;
+    let currentList = null;
+    let listItems = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        const originalLine = lines[i];
+
+        // Detectar encabezados (líneas que parecen títulos)
+        if (isHeading(line)) {
+            // Guardar sección anterior si existe
+            if (currentSection.content.length > 0) {
+                sections.push({...currentSection, endLine: i - 1});
+            }
+
+            // Nueva sección
+            currentSection = {
+                title: line,
+                content: [],
+                startLine: i,
+                level: getHeadingLevel(line)
+            };
+
+            headings.push({
+                text: line,
+                level: getHeadingLevel(line),
+                lineNumber: i
+            });
+
+            continue;
+        }
+
+        // Detectar tablas (líneas con múltiples separadores de tabulación o pipes)
+        if (isTableRow(line)) {
+            if (!inTable) {
+                inTable = true;
+                tableStart = i;
+                tables.push({
+                    startLine: i,
+                    rows: []
+                });
+            }
+
+            // Parsear fila de tabla
+            const currentTable = tables[tables.length - 1];
+            const cells = parseTableRow(line);
+            currentTable.rows.push(cells);
+
+            // Verificar si la tabla terminó (línea vacía después de tabla)
+            if (i + 1 < lines.length && lines[i + 1].trim() === '') {
+                currentTable.endLine = i;
+                inTable = false;
+            }
+
+            continue;
+        } else if (inTable) {
+            // Tabla terminó
+            const currentTable = tables[tables.length - 1];
+            currentTable.endLine = i - 1;
+            inTable = false;
+        }
+
+        // Detectar listas
+        const listInfo = detectListItem(line);
+        if (listInfo.isListItem) {
+            if (!currentList || currentList.type !== listInfo.type) {
+                // Nueva lista
+                if (currentList && listItems.length > 0) {
+                    lists.push({
+                        type: currentList.type,
+                        items: [...listItems],
+                        startLine: currentList.startLine,
+                        endLine: i - 1
+                    });
+                }
+
+                currentList = {
+                    type: listInfo.type,
+                    startLine: i
+                };
+                listItems = [];
+            }
+
+            listItems.push({
+                text: listInfo.text,
+                level: listInfo.level,
+                lineNumber: i
+            });
+        } else if (currentList && listItems.length > 0) {
+            // Lista terminó
+            lists.push({
+                type: currentList.type,
+                items: [...listItems],
+                startLine: currentList.startLine,
+                endLine: i - 1
+            });
+
+            currentList = null;
+            listItems = [];
+        }
+
+        // Agregar línea al contenido de la sección actual
+        if (!inTable) {
+            currentSection.content.push(originalLine);
+        }
+    }
+
+    // Cerrar sección, tabla y lista finales si existen
+    if (currentSection.content.length > 0) {
+        sections.push({...currentSection, endLine: lines.length - 1});
+    }
+
+    if (inTable) {
+        const currentTable = tables[tables.length - 1];
+        currentTable.endLine = lines.length - 1;
+    }
+
+    if (currentList && listItems.length > 0) {
+        lists.push({
+            type: currentList.type,
+            items: [...listItems],
+            startLine: currentList.startLine,
+            endLine: lines.length - 1
+        });
+    }
+
+    return {
+        sections: sections,
+        tables: tables,
+        lists: lists,
+        headings: headings,
+        totalLines: lines.length,
+        hasStructure: sections.length > 1 || tables.length > 0 || lists.length > 0
+    };
+}
+
+// Función auxiliar para detectar encabezados
+function isHeading(line) {
+    const trimmed = line.trim();
+
+    // Criterios para considerar una línea como encabezado:
+    // 1. Longitud razonable (no demasiado larga)
+    // 2. No termina con puntuación
+    // 3. Puede tener numeración
+    // 4. Está en mayúsculas o capitalizada
+    // 5. No contiene muchos números o símbolos
+
+    if (trimmed.length < 5 || trimmed.length > 100) return false;
+    if (trimmed.endsWith('.') || trimmed.endsWith(':') || trimmed.endsWith(';')) return false;
+
+    // Contar mayúsculas vs minúsculas
+    const upperCount = (trimmed.match(/[A-ZÁÉÍÓÚÑ]/g) || []).length;
+    const lowerCount = (trimmed.match(/[a-záéíóúñ]/g) || []).length;
+
+    // Al menos 60% mayúsculas si hay letras
+    if (upperCount + lowerCount > 0) {
+        const upperRatio = upperCount / (upperCount + lowerCount);
+        if (upperRatio < 0.6) return false;
+    }
+
+    // No demasiados números o símbolos
+    const symbolCount = (trimmed.match(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s\d]/g) || []).length;
+    if (symbolCount > trimmed.length * 0.3) return false;
+
+    return true;
+}
+
+// Función para determinar el nivel de encabezado
+function getHeadingLevel(line) {
+    // Basado en numeración o indentación
+    if (/^\d+\./.test(line.trim())) return 1; // 1. Título
+    if (/^[A-Z]\./.test(line.trim())) return 2; // A. Subtítulo
+    if (/^\d+\.\d+/.test(line.trim())) return 3; // 1.1 Subtítulo
+    if (/^\s+/.test(line)) return 2; // Indentado = subtítulo
+
+    return 1; // Por defecto nivel 1
+}
+
+// Función para detectar filas de tabla
+function isTableRow(line) {
+    // Contar separadores de tabulación o pipes
+    const tabCount = (line.match(/\t/g) || []).length;
+    const pipeCount = (line.match(/\|/g) || []).length;
+
+    // Considerar tabla si tiene múltiples separadores
+    return tabCount >= 2 || pipeCount >= 2;
+}
+
+// Función para parsear fila de tabla
+function parseTableRow(line) {
+    // Intentar primero con pipes (formato Markdown)
+    if (line.includes('|')) {
+        return line.split('|')
+            .map(cell => cell.trim())
+            .filter(cell => cell.length > 0);
+    }
+
+    // Luego con tabulaciones
+    if (line.includes('\t')) {
+        return line.split('\t').map(cell => cell.trim());
+    }
+
+    // Fallback: intentar detectar celdas por espacios múltiples
+    return line.split(/\s{2,}/).map(cell => cell.trim());
+}
+
+// Función para detectar elementos de lista
+function detectListItem(line) {
+    const trimmed = line.trim();
+
+    // Detectar diferentes tipos de listas
+    const patterns = [
+        { regex: /^(\d+)\.\s+(.+)$/, type: 'numbered', level: 1 },
+        { regex: /^([a-zA-Z])\.\s+(.+)$/, type: 'lettered', level: 1 },
+        { regex: /^[-•*]\s+(.+)$/, type: 'bullet', level: 1 },
+        { regex: /^\s+(\d+)\.\s+(.+)$/, type: 'numbered', level: 2 },
+        { regex: /^\s+([a-zA-Z])\.\s+(.+)$/, type: 'lettered', level: 2 },
+        { regex: /^\s+[-•*]\s+(.+)$/, type: 'bullet', level: 2 },
+        { regex: /^\s{4,}[-•*]\s+(.+)$/, type: 'bullet', level: 3 }
+    ];
+
+    for (const pattern of patterns) {
+        const match = trimmed.match(pattern.regex);
+        if (match) {
+            return {
+                isListItem: true,
+                type: pattern.type,
+                text: match[match.length - 1], // Último grupo de captura
+                level: pattern.level,
+                marker: match[1]
+            };
+        }
+    }
+
+    return { isListItem: false };
+}
+
+// Función para generar resumen del análisis de documentos
+function generateDocsAnalysisSummary(structure) {
+    if (!structure) return 'Sin análisis disponible';
+
+    let summary = `Documento analizado: ${structure.totalLines} líneas.\n`;
+
+    if (structure.headings.length > 0) {
+        summary += `📑 ${structure.headings.length} encabezados detectados`;
+        const levels = [...new Set(structure.headings.map(h => h.level))].sort();
+        if (levels.length > 1) {
+            summary += ` (niveles: ${levels.join(', ')})`;
+        }
+        summary += '.\n';
+    }
+
+    if (structure.tables.length > 0) {
+        const totalRows = structure.tables.reduce((sum, table) => sum + table.rows.length, 0);
+        summary += `📊 ${structure.tables.length} tabla(s) detectada(s) con ${totalRows} filas totales.\n`;
+    }
+
+    if (structure.lists.length > 0) {
+        const totalItems = structure.lists.reduce((sum, list) => sum + list.items.length, 0);
+        const types = [...new Set(structure.lists.map(l => l.type))];
+        summary += `📝 ${structure.lists.length} lista(s) detectada(s) (${types.join('/')}): ${totalItems} elementos totales.\n`;
+    }
+
+    if (structure.sections.length > 1) {
+        summary += `📄 ${structure.sections.length} secciones identificadas.\n`;
+    }
+
+    if (!structure.hasStructure) {
+        summary += 'Documento sin estructura jerárquica detectable (texto plano).\n';
+    }
+
+    return summary;
+}
+
+// ========================================
+// ADVANCED PDF PARSING
+// ========================================
+
+// Función para parsear PDFs con análisis avanzado
+function parsePDFAdvanced(pdfContent) {
+    try {
+        console.log('📕 Iniciando análisis avanzado de PDF...');
+
+        const pages = pdfContent.split(/--- Página \d+ ---/);
+
+        if (pages.length <= 1) {
+            return {
+                content: pdfContent,
+                structure: null,
+                analysis: 'PDF sin páginas detectables o formato simple'
+            };
+        }
+
+        // Analizar cada página
+        const pageAnalyses = pages.slice(1).map((pageContent, index) => {
+            const pageNumber = index + 1;
+            return analyzePDFPage(pageContent, pageNumber);
+        });
+
+        // Consolidar análisis
+        const structure = consolidatePDFAnalysis(pageAnalyses);
+
+        console.log(`✅ Análisis PDF completado: ${structure.totalPages} páginas, ${structure.tables.length} tablas, ${structure.sections.length} secciones`);
+
+        return {
+            content: pdfContent,
+            structure: structure,
+            analysis: generatePDFAnalysisSummary(structure)
+        };
+
+    } catch (error) {
+        console.error('❌ Error en análisis avanzado de PDF:', error);
+        return {
+            content: pdfContent,
+            structure: null,
+            analysis: `Error en análisis: ${error.message}`
+        };
+    }
+}
+
+// Función para analizar una página individual del PDF
+function analyzePDFPage(pageContent, pageNumber) {
+    const lines = pageContent.split('\n').filter(line => line.trim());
+
+    const analysis = {
+        pageNumber: pageNumber,
+        lineCount: lines.length,
+        tables: [],
+        lists: [],
+        sections: [],
+        headers: [],
+        footers: []
+    };
+
+    let currentTable = null;
+    let inTable = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Detectar posibles encabezados/pies de página por posición
+        if (i < 3) { // Primeras líneas = posibles headers
+            if (isPotentialHeader(line)) {
+                analysis.headers.push({ text: line, lineNumber: i });
+            }
+        }
+
+        if (i > lines.length - 4) { // Últimas líneas = posibles footers
+            if (isPotentialFooter(line)) {
+                analysis.footers.push({ text: line, lineNumber: i });
+            }
+        }
+
+        // Detectar tablas (patrones similares al análisis de documentos)
+        if (isTableRow(line)) {
+            if (!inTable) {
+                inTable = true;
+                currentTable = {
+                    startLine: i,
+                    rows: []
+                };
+                analysis.tables.push(currentTable);
+            }
+
+            const cells = parseTableRow(line);
+            currentTable.rows.push(cells);
+        } else if (inTable) {
+            currentTable.endLine = i - 1;
+            inTable = false;
+            currentTable = null;
+        }
+
+        // Detectar listas
+        const listInfo = detectListItem(line);
+        if (listInfo.isListItem) {
+            if (analysis.lists.length === 0 ||
+                analysis.lists[analysis.lists.length - 1].type !== listInfo.type) {
+                analysis.lists.push({
+                    type: listInfo.type,
+                    items: []
+                });
+            }
+
+            analysis.lists[analysis.lists.length - 1].items.push({
+                text: listInfo.text,
+                lineNumber: i
+            });
+        }
+
+        // Detectar secciones por patrones de texto
+        if (isPotentialSection(line)) {
+            analysis.sections.push({
+                title: line,
+                lineNumber: i
+            });
+        }
+    }
+
+    // Cerrar tabla abierta
+    if (inTable && currentTable) {
+        currentTable.endLine = lines.length - 1;
+    }
+
+    return analysis;
+}
+
+// Función auxiliar para detectar posibles encabezados en PDFs
+function isPotentialHeader(line) {
+    const trimmed = line.trim();
+    if (trimmed.length < 3 || trimmed.length > 80) return false;
+
+    // Headers suelen ser cortos y pueden contener fechas, títulos, números de página
+    const hasDate = /\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(trimmed);
+    const hasPageNumber = /\b\d{1,3}\b/.test(trimmed) && trimmed.toLowerCase().includes('página');
+    const isShortAndCaps = trimmed.length < 50 && trimmed === trimmed.toUpperCase();
+
+    return hasDate || hasPageNumber || isShortAndCaps;
+}
+
+// Función auxiliar para detectar posibles pies de página
+function isPotentialFooter(line) {
+    return isPotentialHeader(line); // Misma lógica para footers
+}
+
+// Función auxiliar para detectar posibles secciones
+function isPotentialSection(line) {
+    return isHeading(line); // Reutilizar lógica de headings
+}
+
+// Función para consolidar análisis de múltiples páginas
+function consolidatePDFAnalysis(pageAnalyses) {
+    const consolidated = {
+        totalPages: pageAnalyses.length,
+        tables: [],
+        lists: [],
+        sections: [],
+        headers: [],
+        footers: []
+    };
+
+    pageAnalyses.forEach(page => {
+        // Agregar tablas con información de página
+        page.tables.forEach(table => {
+            consolidated.tables.push({
+                ...table,
+                pageNumber: page.pageNumber
+            });
+        });
+
+        // Agregar listas con información de página
+        page.lists.forEach(list => {
+            consolidated.lists.push({
+                ...list,
+                pageNumber: page.pageNumber
+            });
+        });
+
+        // Agregar secciones con información de página
+        page.sections.forEach(section => {
+            consolidated.sections.push({
+                ...section,
+                pageNumber: page.pageNumber
+            });
+        });
+
+        // Consolidar headers/footers únicos
+        consolidated.headers.push(...page.headers.map(h => ({ ...h, pageNumber: page.pageNumber })));
+        consolidated.footers.push(...page.footers.map(f => ({ ...f, pageNumber: page.pageNumber })));
+    });
+
+    return consolidated;
+}
+
+// Función para generar resumen del análisis de PDF
+function generatePDFAnalysisSummary(structure) {
+    if (!structure) return 'Sin análisis disponible';
+
+    let summary = `PDF analizado: ${structure.totalPages} páginas.\n`;
+
+    if (structure.tables.length > 0) {
+        const totalRows = structure.tables.reduce((sum, table) => sum + table.rows.length, 0);
+        summary += `📊 ${structure.tables.length} tabla(s) detectada(s) en ${structure.totalPages} página(s): ${totalRows} filas totales.\n`;
+    }
+
+    if (structure.lists.length > 0) {
+        const totalItems = structure.lists.reduce((sum, list) => sum + list.items.length, 0);
+        summary += `📝 ${structure.lists.length} lista(s) detectada(s): ${totalItems} elementos totales.\n`;
+    }
+
+    if (structure.sections.length > 0) {
+        summary += `📄 ${structure.sections.length} secciones identificadas en el documento.\n`;
+    }
+
+    if (structure.headers.length > 0) {
+        summary += `📋 ${structure.headers.length} posibles encabezados detectados.\n`;
+    }
+
+    const hasContent = structure.tables.length > 0 || structure.lists.length > 0 || structure.sections.length > 0;
+    if (!hasContent) {
+        summary += 'PDF sin estructura detectable (posiblemente texto plano o imagen).\n';
+    }
+
+    return summary;
+}
+
+// ========================================
+// ADVANCED WORD DOCUMENT PARSING
+// ========================================
+
+// Función para parsear documentos Word con análisis avanzado
+function parseWordAdvanced(wordContent) {
+    try {
+        console.log('📘 Iniciando análisis avanzado de documento Word...');
+
+        const paragraphs = wordContent.split('\n\n').filter(p => p.trim());
+
+        if (paragraphs.length === 0) {
+            return {
+                content: wordContent,
+                structure: null,
+                analysis: 'Documento Word vacío o sin contenido analizable'
+            };
+        }
+
+        // Analizar estructura del documento Word
+        const structure = analyzeWordStructure(paragraphs);
+
+        console.log(`✅ Análisis Word completado: ${structure.paragraphs} párrafos, ${structure.headings.length} encabezados, ${structure.tables.length} tablas`);
+
+        return {
+            content: wordContent,
+            structure: structure,
+            analysis: generateWordAnalysisSummary(structure)
+        };
+
+    } catch (error) {
+        console.error('❌ Error en análisis avanzado de Word:', error);
+        return {
+            content: wordContent,
+            structure: null,
+            analysis: `Error en análisis: ${error.message}`
+        };
+    }
+}
+
+// Función para analizar la estructura de un documento Word
+function analyzeWordStructure(paragraphs) {
+    const structure = {
+        paragraphs: paragraphs.length,
+        headings: [],
+        tables: [],
+        lists: [],
+        sections: [],
+        styles: {
+            bold: [],
+            italic: [],
+            underline: []
+        }
+    };
+
+    let currentSection = { title: '', paragraphs: [], startPara: 0 };
+    let inTable = false;
+
+    paragraphs.forEach((paragraph, index) => {
+        const trimmed = paragraph.trim();
+
+        // Detectar encabezados por formato y contenido
+        const headingInfo = detectWordHeading(trimmed);
+        if (headingInfo.isHeading) {
+            // Cerrar sección anterior
+            if (currentSection.paragraphs.length > 0) {
+                structure.sections.push({...currentSection, endPara: index - 1});
+            }
+
+            // Nueva sección
+            currentSection = {
+                title: trimmed,
+                paragraphs: [],
+                startPara: index,
+                level: headingInfo.level
+            };
+
+            structure.headings.push({
+                text: trimmed,
+                level: headingInfo.level,
+                paragraphNumber: index
+            });
+        } else {
+            // Agregar párrafo a la sección actual
+            currentSection.paragraphs.push({
+                text: trimmed,
+                length: trimmed.length,
+                paragraphNumber: index
+            });
+        }
+
+        // Detectar listas (similar al análisis de documentos)
+        const listInfo = detectListItem(trimmed);
+        if (listInfo.isListItem) {
+            if (structure.lists.length === 0 ||
+                structure.lists[structure.lists.length - 1].type !== listInfo.type) {
+                structure.lists.push({
+                    type: listInfo.type,
+                    items: []
+                });
+            }
+
+            structure.lists[structure.lists.length - 1].items.push({
+                text: listInfo.text,
+                paragraphNumber: index
+            });
+        }
+
+        // Detectar tablas por patrones de celdas
+        if (isWordTable(trimmed)) {
+            structure.tables.push({
+                paragraphNumber: index,
+                content: trimmed
+            });
+        }
+
+        // Detectar estilos básicos (esto es limitado sin el DOM real)
+        detectWordStyles(trimmed, index, structure.styles);
+    });
+
+    // Cerrar sección final
+    if (currentSection.paragraphs.length > 0) {
+        structure.sections.push({...currentSection, endPara: paragraphs.length - 1});
+    }
+
+    structure.hasStructure = structure.headings.length > 0 || structure.tables.length > 0 || structure.lists.length > 0;
+
+    return structure;
+}
+
+// Función para detectar encabezados en documentos Word
+function detectWordHeading(text) {
+    // Word headings suelen tener estilos específicos, pero podemos detectar por:
+    // 1. Texto corto en mayúsculas
+    // 2. Numeración (1., 1.1., A., etc.)
+    // 3. Palabras clave comunes
+
+    const trimmed = text.trim();
+
+    // Detectar numeración de headings
+    const numberingPatterns = [
+        /^\d+\./,      // 1.
+        /^\d+\.\d+/,   // 1.1.
+        /^[A-Z]\./,    // A.
+        /^[a-z]\./,    // a.
+        /^I{1,3}\./,   // I., II., III.
+        /^\([A-Z]\)/,  // (A)
+        /^\d+\)/       // 1)
+    ];
+
+    for (const pattern of numberingPatterns) {
+        if (pattern.test(trimmed)) {
+            return {
+                isHeading: true,
+                level: pattern.source.includes('\\.\\d+') ? 2 : 1 // Subheadings tienen números decimales
+            };
+        }
+    }
+
+    // Detectar por formato (corto, mayúsculas, sin puntuación final)
+    if (trimmed.length < 80 && trimmed.length > 3) {
+        const upperRatio = (trimmed.match(/[A-Z]/g) || []).length / trimmed.replace(/[^a-zA-Z]/g, '').length;
+        if (upperRatio > 0.7 && !trimmed.endsWith('.') && !trimmed.endsWith(':')) {
+            return { isHeading: true, level: 1 };
+        }
+    }
+
+    // Palabras clave comunes para headings
+    const headingKeywords = ['chapter', 'section', 'introduction', 'conclusion', 'summary', 'capítulo', 'sección'];
+    const lowerText = trimmed.toLowerCase();
+    if (headingKeywords.some(keyword => lowerText.includes(keyword))) {
+        return { isHeading: true, level: 1 };
+    }
+
+    return { isHeading: false };
+}
+
+// Función para detectar tablas en documentos Word
+function isWordTable(text) {
+    // Las tablas en Word exportado pueden tener patrones de celdas separados por tabs o pipes
+    return isTableRow(text);
+}
+
+// Función para detectar estilos básicos en Word
+function detectWordStyles(text, paragraphIndex, styles) {
+    // Esto es limitado sin acceso al DOM, pero podemos detectar algunos patrones
+
+    // Detectar posibles negritas (palabras en mayúsculas consecutivas)
+    const words = text.split(/\s+/);
+    words.forEach(word => {
+        if (word.length > 1 && word === word.toUpperCase() && word.match(/[A-Z]{2,}/)) {
+            styles.bold.push({ word, paragraphIndex });
+        }
+    });
+
+    // Detectar posibles cursivas (patrones específicos - limitado)
+    // Detectar posibles subrayados (patrones específicos - limitado)
+}
+
+// Función para generar resumen del análisis de Word
+function generateWordAnalysisSummary(structure) {
+    if (!structure) return 'Sin análisis disponible';
+
+    let summary = `Documento Word analizado: ${structure.paragraphs} párrafos.\n`;
+
+    if (structure.headings.length > 0) {
+        const levels = [...new Set(structure.headings.map(h => h.level))];
+        summary += `📑 ${structure.headings.length} encabezado(s) detectado(s)`;
+        if (levels.length > 1) {
+            summary += ` (niveles: ${levels.join(', ')})`;
+        }
+        summary += '.\n';
+    }
+
+    if (structure.tables.length > 0) {
+        summary += `📊 ${structure.tables.length} tabla(s) detectada(s).\n`;
+    }
+
+    if (structure.lists.length > 0) {
+        const totalItems = structure.lists.reduce((sum, list) => sum + list.items.length, 0);
+        const types = [...new Set(structure.lists.map(l => l.type))];
+        summary += `📝 ${structure.lists.length} lista(s) detectada(s) (${types.join('/')}): ${totalItems} elementos totales.\n`;
+    }
+
+    if (structure.sections.length > 1) {
+        summary += `📄 ${structure.sections.length} secciones identificadas.\n`;
+    }
+
+    // Información de estilos detectados
+    const totalStyles = Object.values(structure.styles).reduce((sum, arr) => sum + arr.length, 0);
+    if (totalStyles > 0) {
+        summary += `🎨 ${totalStyles} elementos de formato detectados.\n`;
+    }
+
+    if (!structure.hasStructure) {
+        summary += 'Documento sin estructura jerárquica detectable (texto continuo).\n';
+    }
+
+    return summary;
+}
+
 // Función para leer el contenido de un archivo
 async function readFileContent(fileId, mimeType) {
     const accessToken = getAccessToken();
@@ -755,7 +1549,7 @@ async function readFileContent(fileId, mimeType) {
                                mimeType.includes('spreadsheet') ? 'text/csv' :
                                mimeType.includes('presentation') ? 'text/plain' :
                                'text/plain';
-        
+
         // Usar API oficial con token de acceso
         if (accessToken) {
             try {
@@ -767,15 +1561,49 @@ async function readFileContent(fileId, mimeType) {
                     }
                 });
                 if (response.ok) {
-                    const content = await response.text();
+                    let content = await response.text();
                     console.log(`Contenido leído: ${content.length} caracteres`);
 
-                    // Guardar en caché
-                    saveDocumentToCache(fileId, {
+                    // Aplicar análisis avanzado según el tipo de documento
+                    let advancedParse = null;
+
+                    if (mimeType.includes('document')) {
+                        // Google Docs - análisis avanzado de estructura
+                        console.log('📄 Aplicando análisis avanzado a Google Docs...');
+                        advancedParse = parseGoogleDocsAdvanced(content);
+
+                        // Crear contenido enriquecido con metadatos
+                        if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                            content = `=== ANÁLISIS AVANZADO DEL DOCUMENTO GOOGLE ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${content}`;
+                        }
+
+                        console.log(`✅ Google Docs procesado con análisis avanzado: ${advancedParse.structure?.sections?.length || 0} secciones detectadas`);
+                    }
+                    else if (mimeType.includes('presentation')) {
+                        // Google Slides - similar al análisis de documentos
+                        console.log('📽️ Aplicando análisis avanzado a Google Slides...');
+                        advancedParse = parseGoogleDocsAdvanced(content);
+
+                        if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                            content = `=== ANÁLISIS AVANZADO DE LA PRESENTACIÓN GOOGLE ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${content}`;
+                        }
+
+                        console.log(`✅ Google Slides procesado con análisis avanzado: ${advancedParse.structure?.sections?.length || 0} secciones detectadas`);
+                    }
+
+                    // Guardar en caché con contenido enriquecido y estructura si existe
+                    const cacheData = {
                         content: content,
                         mimeType: mimeType,
                         name: `Documento ${fileId.substring(0, 12)}...`
-                    });
+                    };
+
+                    if (advancedParse && advancedParse.structure) {
+                        cacheData.structure = advancedParse.structure;
+                        cacheData.analysis = advancedParse.analysis;
+                    }
+
+                    saveDocumentToCache(fileId, cacheData);
 
                     return content;
                 } else {
@@ -788,11 +1616,11 @@ async function readFileContent(fileId, mimeType) {
         }
     }
     
-    // Para archivos PDF - usar PDF.js para extracción mejorada
+    // Para archivos PDF - usar PDF.js para extracción mejorada + análisis avanzado
     if (mimeType === 'application/pdf') {
         if (accessToken) {
             try {
-                console.log('📕 Procesando PDF con PDF.js...');
+                console.log('📕 Procesando PDF con PDF.js y análisis avanzado...');
                 const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
                 const response = await fetch(downloadUrl, {
                     headers: {
@@ -805,14 +1633,29 @@ async function readFileContent(fileId, mimeType) {
                     const text = await parsePDFContent(arrayBuffer);
                     console.log(`✅ PDF procesado: ${text.length} caracteres extraídos`);
 
-                    // Guardar en caché
+                    // Aplicar análisis avanzado del PDF
+                    const advancedParse = parsePDFAdvanced(text);
+
+                    // Crear contenido enriquecido con metadatos
+                    let enrichedContent = text;
+
+                    // Agregar resumen del análisis al inicio del documento
+                    if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                        enrichedContent = `=== ANÁLISIS AVANZADO DEL PDF ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${text}`;
+                    }
+
+                    // Guardar en caché con contenido enriquecido y estructura
                     saveDocumentToCache(fileId, {
-                        content: text,
+                        content: enrichedContent,
                         mimeType: mimeType,
-                        name: `Documento PDF ${fileId.substring(0, 12)}...`
+                        name: `Documento PDF ${fileId.substring(0, 12)}...`,
+                        structure: advancedParse.structure,
+                        analysis: advancedParse.analysis
                     });
 
-                    return text;
+                    console.log(`✅ PDF procesado con análisis avanzado: ${advancedParse.structure?.tables?.length || 0} tablas, ${advancedParse.structure?.sections?.length || 0} secciones detectadas`);
+
+                    return enrichedContent;
                 } else {
                     throw new Error(`Error al descargar PDF: ${response.status}`);
                 }
@@ -823,11 +1666,11 @@ async function readFileContent(fileId, mimeType) {
         }
     }
 
-    // Para archivos DOCX - usar mammoth.js para extracción mejorada
+    // Para archivos DOCX - usar mammoth.js para extracción mejorada + análisis avanzado
     if (mimeType.includes('wordprocessingml') || mimeType.includes('msword')) {
         if (accessToken) {
             try {
-                console.log('📘 Procesando DOCX con mammoth.js...');
+                console.log('📘 Procesando DOCX con mammoth.js y análisis avanzado...');
                 const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
                 const response = await fetch(downloadUrl, {
                     headers: {
@@ -840,14 +1683,29 @@ async function readFileContent(fileId, mimeType) {
                     const text = await parseDOCXContent(arrayBuffer);
                     console.log(`✅ DOCX procesado: ${text.length} caracteres extraídos`);
 
-                    // Guardar en caché
+                    // Aplicar análisis avanzado del documento Word
+                    const advancedParse = parseWordAdvanced(text);
+
+                    // Crear contenido enriquecido con metadatos
+                    let enrichedContent = text;
+
+                    // Agregar resumen del análisis al inicio del documento
+                    if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                        enrichedContent = `=== ANÁLISIS AVANZADO DEL DOCUMENTO WORD ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${text}`;
+                    }
+
+                    // Guardar en caché con contenido enriquecido y estructura
                     saveDocumentToCache(fileId, {
-                        content: text,
+                        content: enrichedContent,
                         mimeType: mimeType,
-                        name: `Documento Word ${fileId.substring(0, 12)}...`
+                        name: `Documento Word ${fileId.substring(0, 12)}...`,
+                        structure: advancedParse.structure,
+                        analysis: advancedParse.analysis
                     });
 
-                    return text;
+                    console.log(`✅ Word procesado con análisis avanzado: ${advancedParse.structure?.headings?.length || 0} encabezados, ${advancedParse.structure?.tables?.length || 0} tablas detectadas`);
+
+                    return enrichedContent;
                 } else {
                     throw new Error(`Error al descargar DOCX: ${response.status}`);
                 }
@@ -2039,24 +2897,45 @@ async function analyzeDocumentsWithAI(userMessage) {
             context += `Tipo MIME: ${doc.mimeType}\n`;
             context += `Tamaño total: ${doc.content.length} caracteres\n`;
 
-            // Agregar información de estructura si está disponible (para Excel procesado avanzadamente)
-            if (doc.structure && doc.structure.columns) {
-                const excelColumns = doc.structure.columns.filter(col => col.category !== 'unknown' && col.confidence > 0.5);
-                if (excelColumns.length > 0) {
-                    context += `📊 Columnas detectadas: ${excelColumns.map(col => `${col.name} (${col.category})`).join(', ')}\n`;
+            // Agregar información de estructura si está disponible (análisis avanzado)
+            if (doc.structure) {
+                // Para Excel/Sheets
+                if (doc.structure.columns) {
+                    const excelColumns = doc.structure.columns.filter(col => col.category !== 'unknown' && col.confidence > 0.5);
+                    if (excelColumns.length > 0) {
+                        context += `📊 Columnas detectadas: ${excelColumns.map(col => `${col.name} (${col.category})`).join(', ')}\n`;
+                    }
+
+                    // Información específica sobre columnas categóricas
+                    const categoricalColumns = doc.structure.columns.filter(col =>
+                        ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
+                    );
+                    if (categoricalColumns.length > 0) {
+                        context += `🏷️ Columnas categóricas: `;
+                        categoricalColumns.forEach(col => {
+                            const values = Array.from(col.uniqueValues).slice(0, 5).join('/');
+                            context += `${col.name}(${values}${col.uniqueCount > 5 ? '...' : ''}) `;
+                        });
+                        context += '\n';
+                    }
                 }
 
-                // Información específica sobre columnas categóricas
-                const categoricalColumns = doc.structure.columns.filter(col =>
-                    ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
-                );
-                if (categoricalColumns.length > 0) {
-                    context += `🏷️ Columnas categóricas: `;
-                    categoricalColumns.forEach(col => {
-                        const values = Array.from(col.uniqueValues).slice(0, 5).join('/');
-                        context += `${col.name}(${values}${col.uniqueCount > 5 ? '...' : ''}) `;
-                    });
-                    context += '\n';
+                // Para Google Docs / PDF / Word - información de estructura de documentos
+                if (doc.structure.sections || doc.structure.headings || doc.structure.tables || doc.structure.lists) {
+                    const elements = [];
+                    if (doc.structure.headings?.length > 0) elements.push(`${doc.structure.headings.length} encabezados`);
+                    if (doc.structure.tables?.length > 0) elements.push(`${doc.structure.tables.length} tablas`);
+                    if (doc.structure.lists?.length > 0) elements.push(`${doc.structure.lists.length} listas`);
+                    if (doc.structure.sections?.length > 1) elements.push(`${doc.structure.sections.length} secciones`);
+
+                    if (elements.length > 0) {
+                        context += `📄 Estructura detectada: ${elements.join(', ')}\n`;
+                    }
+
+                    // Para PDFs - información de páginas
+                    if (doc.structure.totalPages) {
+                        context += `📑 ${doc.structure.totalPages} páginas analizadas\n`;
+                    }
                 }
             }
 
@@ -2071,12 +2950,16 @@ async function analyzeDocumentsWithAI(userMessage) {
         const messages = [
             {
                 role: 'system',
-                content: `Eres un asistente inteligente especializado en analizar documentos, incluyendo archivos Excel procesados con análisis avanzado de estructura.
+                content: `Eres un asistente inteligente especializado en analizar documentos procesados con análisis avanzado de estructura.
 
-CAPACIDADES ESPECIALES PARA EXCEL:
-- Algunos documentos Excel han sido procesados con análisis avanzado que detecta automáticamente columnas como "Status", "Priority", "Category", etc.
-- Si ves información sobre "📊 Columnas detectadas" o "🏷️ Columnas categóricas", significa que el sistema ha identificado la estructura del documento
-- Puedes usar esta información para hacer consultas más inteligentes sobre estados, prioridades, categorías, etc.
+CAPACIDADES ESPECIALES DE ANÁLISIS:
+- **Excel/Sheets**: Detecta automáticamente columnas como "Status", "Priority", "Category", etc. con información sobre "📊 Columnas detectadas" o "🏷️ Columnas categóricas"
+- **Google Docs**: Identifica encabezados, secciones, tablas y listas con información sobre "📄 Estructura detectada"
+- **PDFs**: Analiza páginas individuales, detecta tablas, listas y secciones con información sobre páginas analizadas
+- **Word Documents**: Detecta encabezados, párrafos estructurados, tablas y elementos de formato
+- **Presentaciones**: Similar al análisis de documentos con estructura de diapositivas
+
+Puedes usar esta información estructural para hacer consultas más inteligentes sobre cualquier tipo de documento.
 
 REGLAS ESTRICTAS:
 1. SOLO puedes responder preguntas basándote en la información que está EXPLÍCITAMENTE contenida en los documentos proporcionados
