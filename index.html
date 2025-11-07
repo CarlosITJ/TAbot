@@ -12,6 +12,9 @@
     <div class="chat-container">
         <div class="chat-header">
             <h1>🤖 Chatbot Simple</h1>
+            <div id="aiIndicator" class="ai-indicator" style="display: none;">
+                <span class="ai-badge">⚡ IA Activa</span>
+            </div>
             <button id="settingsButton" class="settings-button" title="Configuración">⚙️</button>
         </div>
         <!-- Panel de configuración de Google Drive -->
@@ -74,19 +77,31 @@
                         </div>
                         
                         <div class="api-field">
-                            <label for="apiKey">API Key (Opcional):</label>
+                            <label for="apiKey">API Key de Google (Opcional):</label>
                             <input 
                                 type="text" 
                                 id="apiKey" 
                                 class="drive-input" 
                                 placeholder="AIza..."
                             >
-                            <small>Opcional: para algunas funcionalidades adicionales</small>
+                            <small>Opcional: para algunas funcionalidades adicionales de Google</small>
+                        </div>
+                        
+                        <div class="api-field">
+                            <label for="xaiApiKey">🤖 xAI API Key (Para IA inteligente):</label>
+                            <input 
+                                type="password" 
+                                id="xaiApiKey" 
+                                class="drive-input" 
+                                placeholder="xai-..."
+                            >
+                            <small>Ingresa tu API Key de xAI para habilitar análisis inteligente con Grok</small>
                         </div>
                         
                         <div class="api-actions">
                             <button id="saveApiConfigButton" class="connect-button">Guardar Configuración</button>
                             <button id="signInButton" class="signin-button" style="display: none;">Iniciar Sesión con Google</button>
+                            <button id="loadDriveFilesButton" class="connect-button" style="display: none;">📂 Cargar Mis Documentos</button>
                             <button id="signOutButton" class="signout-button" style="display: none;">Cerrar Sesión</button>
                         </div>
                         

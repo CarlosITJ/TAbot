@@ -15,10 +15,13 @@ const tabButtons = document.querySelectorAll('.tab-button');
 const tabContents = document.querySelectorAll('.tab-content');
 const clientIdInput = document.getElementById('clientId');
 const apiKeyInput = document.getElementById('apiKey');
+const xaiApiKeyInput = document.getElementById('xaiApiKey');
 const saveApiConfigButton = document.getElementById('saveApiConfigButton');
 const signInButton = document.getElementById('signInButton');
 const signOutButton = document.getElementById('signOutButton');
+const loadDriveFilesButton = document.getElementById('loadDriveFilesButton');
 const apiStatus = document.getElementById('apiStatus');
+const aiIndicator = document.getElementById('aiIndicator');
 
 // Almacenamiento de documentos de Google Drive
 let driveDocuments = [];
@@ -87,11 +90,46 @@ function countOccurrences(text, pattern) {
     return (text.match(new RegExp(pattern, 'g')) || []).length;
 }
 
-// Función para obtener respuesta del chatbot
-function getBotResponse(userMessage) {
+// Función para obtener respuesta del chatbot (MEJORADA CON IA)
+async function getBotResponse(userMessage) {
     const message = userMessage.toLowerCase().trim();
     
-    // Primero buscar en documentos de Google Drive si hay
+    console.log('🔍 getBotResponse llamada:', {
+        message: userMessage,
+        xaiConfigured: !!xaiApiKey,
+        documentsLoaded: driveDocuments.length
+    });
+    
+    // PRIORIDAD 1: Si hay xAI configurado, usar IA
+    if (xaiApiKey) {
+        console.log('✅ xAI está configurado, intentando usar IA...');
+        try {
+            // Si hay documentos cargados, analizar con contexto
+            if (driveDocuments.length > 0) {
+                console.log('📄 Usando xAI con documentos...');
+                const aiResponse = await analyzeDocumentsWithAI(userMessage);
+                if (aiResponse) {
+                    console.log('✅ Respuesta de xAI con documentos recibida');
+                    return aiResponse;
+                }
+            } else {
+                // Sin documentos, respuesta inteligente general
+                console.log('💬 Usando xAI sin documentos...');
+                const aiResponse = await getSmartResponse(userMessage);
+                if (aiResponse) {
+                    console.log('✅ Respuesta de xAI general recibida');
+                    return aiResponse;
+                }
+            }
+        } catch (error) {
+            console.error('❌ Error con xAI, usando fallback:', error);
+            // Continuar con los métodos de respaldo
+        }
+    } else {
+        console.log('⚠️ xAI NO está configurado, usando respuestas predefinidas');
+    }
+    
+    // PRIORIDAD 2: Buscar en documentos de Google Drive (búsqueda simple)
     if (driveDocuments.length > 0) {
         const docResponse = searchInDocuments(message);
         if (docResponse) {
@@ -99,15 +137,14 @@ function getBotResponse(userMessage) {
         }
     }
     
-    // Buscar coincidencias en las respuestas predefinidas
+    // PRIORIDAD 3: Buscar coincidencias en las respuestas predefinidas
     for (const [key, value] of Object.entries(responses)) {
         if (message.includes(key)) {
-            // Retornar una respuesta aleatoria del array
             return value[Math.floor(Math.random() * value.length)];
         }
     }
     
-    // Respuesta por defecto si no hay coincidencia
+    // PRIORIDAD 4: Respuesta por defecto
     return defaultResponses[Math.floor(Math.random() * defaultResponses.length)];
 }
 
@@ -127,8 +164,8 @@ function addMessage(message, isUser) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Función para enviar mensaje
-function sendMessage() {
+// Función para enviar mensaje (ACTUALIZADA PARA ASYNC)
+async function sendMessage() {
     const message = userInput.value.trim();
     
     if (message === '') {
@@ -141,11 +178,38 @@ function sendMessage() {
     // Limpiar input
     userInput.value = '';
     
-    // Simular delay del bot (mejor UX)
-    setTimeout(() => {
-        const botResponse = getBotResponse(message);
+    // Mostrar indicador de escritura
+    const typingIndicator = document.createElement('div');
+    typingIndicator.className = 'message bot-message typing-indicator';
+    typingIndicator.id = 'typing-indicator';
+    typingIndicator.innerHTML = '<div class="message-content">🤖 Pensando...</div>';
+    chatMessages.appendChild(typingIndicator);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    try {
+        // Obtener respuesta (ahora es async)
+        const botResponse = await getBotResponse(message);
+        
+        // Remover indicador de escritura
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) {
+            indicator.remove();
+        }
+        
+        // Agregar respuesta del bot
         addMessage(botResponse, false);
-    }, 500);
+    } catch (error) {
+        console.error('Error al obtener respuesta:', error);
+        
+        // Remover indicador de escritura
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) {
+            indicator.remove();
+        }
+        
+        // Mostrar error al usuario
+        addMessage('Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.', false);
+    }
 }
 
 // Event listeners
@@ -242,50 +306,87 @@ function processDocumentIds(idsText) {
 async function readFileContent(fileId, mimeType) {
     const accessToken = getAccessToken();
     
+    console.log(`Leyendo archivo ${fileId} de tipo ${mimeType}`);
+    
     // Para documentos de Google (Docs, Sheets, Slides)
     if (mimeType.includes('google-apps')) {
         const exportMimeType = mimeType.includes('document') ? 'text/plain' :
                                mimeType.includes('spreadsheet') ? 'text/csv' :
+                               mimeType.includes('presentation') ? 'text/plain' :
                                'text/plain';
         
-        // Método 1: Si hay token de acceso, usar API oficial
+        // Usar API oficial con token de acceso
         if (accessToken) {
             try {
                 const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportMimeType}`;
+                console.log(`Exportando como ${exportMimeType}:`, exportUrl);
                 const response = await fetch(exportUrl, {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`
                     }
                 });
                 if (response.ok) {
-                    return await response.text();
+                    const content = await response.text();
+                    console.log(`Contenido leído: ${content.length} caracteres`);
+                    return content;
+                } else {
+                    console.error('Error en exportación:', response.status);
                 }
             } catch (error) {
                 console.error('Error con API oficial:', error);
+                throw error;
             }
         }
+    }
+    
+    // Para archivos de Microsoft Office (DOC, DOCX, XLS, XLSX) y PDFs
+    if (mimeType.includes('msword') || 
+        mimeType.includes('wordprocessingml') || 
+        mimeType.includes('excel') || 
+        mimeType.includes('spreadsheetml') ||
+        mimeType === 'application/pdf') {
         
-        // Método 2: Usar URL de exportación pública (para documentos compartidos públicamente)
-        try {
-            const publicExportUrl = `https://docs.google.com/document/d/${fileId}/export?format=txt`;
-            const response = await fetch(publicExportUrl);
-            if (response.ok) {
-                return await response.text();
+        if (accessToken) {
+            try {
+                // Para PDFs y archivos de Office, intentar exportar como texto
+                // Google Drive puede convertir algunos formatos automáticamente
+                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
+                console.log(`Intentando convertir ${mimeType} a texto`);
+                
+                const response = await fetch(exportUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const content = await response.text();
+                    console.log(`Archivo Office/PDF convertido: ${content.length} caracteres`);
+                    return content;
+                } else {
+                    // Si no se puede exportar, intentar descargar directamente
+                    console.log('No se pudo exportar, intentando descarga directa...');
+                    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+                    const downloadResponse = await fetch(downloadUrl, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
+                    });
+                    
+                    if (downloadResponse.ok) {
+                        // Para archivos binarios, advertir al usuario
+                        return `[Archivo ${mimeType} descargado pero requiere procesamiento especial para extraer texto. Considera convertirlo a Google Docs primero]`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error procesando archivo Office/PDF:', error);
+                throw new Error(`No se pudo leer el archivo ${mimeType}. Intenta abrirlo en Google Drive y convertirlo a Google Docs.`);
             }
-        } catch (error) {
-            console.error('Error con exportación pública:', error);
         }
-        
-        // Método 3: Intentar leer como HTML y extraer texto
-        try {
-            const htmlUrl = `https://docs.google.com/document/d/${fileId}/preview`;
-            // Nota: Esto requiere un parser HTML, por ahora retornamos un mensaje
-            throw new Error('El documento requiere autenticación o no está compartido públicamente');
-        } catch (error) {
-            throw error;
-        }
-    } else {
-        // Para otros archivos (TXT, etc.)
+    }
+    
+    // Para archivos de texto plano
+    if (mimeType.includes('text/plain')) {
         if (accessToken) {
             try {
                 const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
@@ -301,17 +402,6 @@ async function readFileContent(fileId, mimeType) {
                 console.error('Error descargando archivo:', error);
             }
         }
-        
-        // Para archivos compartidos públicamente
-        try {
-            const publicUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-            const response = await fetch(publicUrl);
-            if (response.ok) {
-                return await response.text();
-            }
-        } catch (error) {
-            throw new Error('No se pudo leer el archivo. Asegúrate de que esté compartido públicamente.');
-        }
     }
     
     throw new Error('No se pudo leer el contenido del archivo');
@@ -320,6 +410,7 @@ async function readFileContent(fileId, mimeType) {
 // Variables de configuración de API
 let googleClientId = null;
 let googleApiKey = null;
+let xaiApiKey = null;
 let isAuthenticated = false;
 
 // Función para obtener token de acceso
@@ -327,16 +418,29 @@ function getAccessToken() {
     return localStorage.getItem('google_access_token') || null;
 }
 
+// Función para actualizar indicador de IA
+function updateAIIndicator() {
+    if (xaiApiKey) {
+        aiIndicator.style.display = 'block';
+    } else {
+        aiIndicator.style.display = 'none';
+    }
+}
+
 // Función para cargar configuración guardada
 function loadApiConfig() {
     googleClientId = localStorage.getItem('google_client_id');
     googleApiKey = localStorage.getItem('google_api_key');
+    xaiApiKey = localStorage.getItem('xai_api_key');
     
     if (googleClientId) {
         clientIdInput.value = googleClientId;
     }
     if (googleApiKey) {
         apiKeyInput.value = googleApiKey;
+    }
+    if (xaiApiKey) {
+        xaiApiKeyInput.value = xaiApiKey;
     }
     
     // Verificar si hay token guardado
@@ -349,24 +453,32 @@ function loadApiConfig() {
             initGoogleAPI();
         }
     }
+    
+    // Actualizar indicador de IA
+    updateAIIndicator();
 }
 
 // Función para guardar configuración de API
 function saveApiConfig() {
     const clientId = clientIdInput.value.trim();
     const apiKey = apiKeyInput.value.trim();
+    const xaiKey = xaiApiKeyInput.value.trim();
     
-    console.log('Intentando guardar configuración...', { clientId: clientId.substring(0, 20) + '...', hasApiKey: !!apiKey });
+    console.log('Intentando guardar configuración...', { 
+        clientId: clientId ? clientId.substring(0, 20) + '...' : 'vacío', 
+        hasApiKey: !!apiKey,
+        hasXaiKey: !!xaiKey 
+    });
     
-    if (!clientId) {
-        apiStatus.innerHTML = '<div class="error">✗ Por favor, ingresa el Client ID</div>';
+    // Validar que al menos haya Client ID o xAI Key
+    if (!clientId && !xaiKey) {
+        apiStatus.innerHTML = '<div class="error">✗ Por favor, ingresa al menos el Client ID de Google o la API Key de xAI</div>';
         apiStatus.className = 'drive-status error';
         return;
     }
     
-    // Validar formato básico del Client ID (más flexible)
-    if (!clientId.includes('.apps.googleusercontent.com')) {
-        // Advertencia pero permitir guardar (puede ser un ID válido que no sigue el formato estándar)
+    // Validar formato básico del Client ID si está presente
+    if (clientId && !clientId.includes('.apps.googleusercontent.com')) {
         console.warn('Client ID no sigue el formato estándar, pero se guardará de todas formas');
     }
     
@@ -374,13 +486,25 @@ function saveApiConfig() {
         // Guardar en variables
         googleClientId = clientId;
         googleApiKey = apiKey;
+        xaiApiKey = xaiKey;
         
         // Guardar en localStorage
-        localStorage.setItem('google_client_id', clientId);
+        if (clientId) {
+            localStorage.setItem('google_client_id', clientId);
+        } else {
+            localStorage.removeItem('google_client_id');
+        }
+        
         if (apiKey) {
             localStorage.setItem('google_api_key', apiKey);
         } else {
             localStorage.removeItem('google_api_key');
+        }
+        
+        if (xaiKey) {
+            localStorage.setItem('xai_api_key', xaiKey);
+        } else {
+            localStorage.removeItem('xai_api_key');
         }
         
         // Verificar que se guardó correctamente
@@ -392,11 +516,19 @@ function saveApiConfig() {
         console.log('Configuración guardada exitosamente');
         
         // Configuración guardada exitosamente
-        apiStatus.innerHTML = '<div class="success">✓ Configuración guardada correctamente. Puedes iniciar sesión.</div>';
+        let successMessage = '✓ Configuración guardada correctamente.';
+        if (clientId) successMessage += ' Puedes iniciar sesión con Google.';
+        if (xaiKey) successMessage += ' 🤖 IA de xAI (Grok) activada!';
+        
+        apiStatus.innerHTML = `<div class="success">${successMessage}</div>`;
         apiStatus.className = 'drive-status success';
         
+        // Actualizar indicador de IA
+        updateAIIndicator();
+        
         // Mostrar botón de inicio de sesión
-        signInButton.style.display = 'inline-block';
+        signInButton.style.display = clientId ? 'inline-block' : 'none';
+        loadDriveFilesButton.style.display = 'none';
         signOutButton.style.display = 'none';
         
         // Intentar verificar Google Identity Services (no crítico)
@@ -422,6 +554,309 @@ async function initGoogleAPI() {
     // Solo verificamos que la configuración esté guardada (ya se hizo en saveApiConfig)
     console.log('Configuración verificada');
     return Promise.resolve();
+}
+
+// ========================================
+// INTEGRACIÓN CON xAI (GROK)
+// ========================================
+
+// Función para llamar a la API de xAI (Grok)
+async function callXAI(messages, temperature = 0.7) {
+    if (!xaiApiKey) {
+        console.error('❌ API Key de xAI no configurada');
+        throw new Error('API Key de xAI no configurada');
+    }
+    
+    try {
+        console.log('🚀 Llamando a xAI (Grok)...', { 
+            messageCount: messages.length,
+            hasApiKey: !!xaiApiKey,
+            apiKeyPrefix: xaiApiKey.substring(0, 8) + '...'
+        });
+        
+        const requestBody = {
+            model: 'grok-2-1212',  // Modelo actualizado de xAI
+            messages: messages,
+            temperature: temperature,
+            max_tokens: 1000,
+            stream: false
+        };
+        
+        console.log('📤 Enviando request:', { 
+            url: 'https://api.x.ai/v1/chat/completions',
+            model: requestBody.model,
+            messagesCount: messages.length 
+        });
+        
+        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${xaiApiKey}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+        
+        console.log('📥 Respuesta recibida, status:', response.status);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('❌ Error de xAI:', errorData);
+            throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('✅ Respuesta de xAI procesada:', {
+            hasChoices: !!data.choices,
+            choicesLength: data.choices?.length,
+            firstMessage: data.choices?.[0]?.message?.content?.substring(0, 100)
+        });
+        
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            console.error('❌ Formato de respuesta inesperado:', data);
+            throw new Error('Formato de respuesta inesperado de xAI');
+        }
+        
+        return data.choices[0].message.content;
+    } catch (error) {
+        console.error('❌ Error al llamar xAI:', error);
+        throw error;
+    }
+}
+
+// Función para analizar documentos con xAI
+async function analyzeDocumentsWithAI(userMessage) {
+    if (!xaiApiKey) {
+        return null; // No hay xAI configurado
+    }
+    
+    if (driveDocuments.length === 0) {
+        return null; // No hay documentos cargados
+    }
+    
+    try {
+        // Construir contexto de los documentos
+        let context = "Tengo acceso a los siguientes documentos:\n\n";
+        
+        driveDocuments.forEach((doc, index) => {
+            // Limitar el contenido para no exceder límites de tokens
+            const preview = doc.content.substring(0, 2000);
+            context += `Documento ${index + 1}: "${doc.name}"\n`;
+            context += `Contenido: ${preview}${doc.content.length > 2000 ? '...' : ''}\n\n`;
+        });
+        
+        // Crear mensajes para xAI
+        const messages = [
+            {
+                role: 'system',
+                content: `Eres un asistente inteligente que analiza documentos y proporciona respuestas detalladas, análisis profundos y sugerencias útiles. 
+                
+Tu objetivo es:
+1. Responder preguntas sobre el contenido de los documentos
+2. Proporcionar análisis y perspectivas
+3. Dar sugerencias y recomendaciones cuando sea apropiado
+4. Ser claro, conciso y útil
+
+Estilo: Profesional pero amigable, directo y práctico.`
+            },
+            {
+                role: 'user',
+                content: `${context}\n\nUsuario pregunta: ${userMessage}\n\nPor favor, analiza la pregunta en el contexto de los documentos proporcionados y da una respuesta útil con análisis y sugerencias si aplica.`
+            }
+        ];
+        
+        const response = await callXAI(messages);
+        return response;
+        
+    } catch (error) {
+        console.error('Error al analizar con xAI:', error);
+        return null;
+    }
+}
+
+// Función para obtener respuesta inteligente (sin documentos)
+async function getSmartResponse(userMessage) {
+    if (!xaiApiKey) {
+        return null;
+    }
+    
+    try {
+        const messages = [
+            {
+                role: 'system',
+                content: `Eres un asistente virtual inteligente y amigable. Responde de manera concisa, útil y con personalidad. Puedes ser creativo y dar sugerencias cuando sea apropiado.`
+            },
+            {
+                role: 'user',
+                content: userMessage
+            }
+        ];
+        
+        const response = await callXAI(messages, 0.8);
+        return response;
+        
+    } catch (error) {
+        console.error('Error al obtener respuesta de xAI:', error);
+        return null;
+    }
+}
+
+// Función para listar archivos recientes de Google Drive del usuario
+async function listUserDriveFiles() {
+    const accessToken = getAccessToken();
+    
+    if (!accessToken) {
+        throw new Error('No hay sesión activa');
+    }
+    
+    try {
+        console.log('Buscando archivos en Google Drive...');
+        
+        // Listar todos los documentos compatibles (Google Docs, PDFs, Office, etc.)
+        const query = encodeURIComponent(
+            "mimeType='application/vnd.google-apps.document' or " +
+            "mimeType='application/vnd.google-apps.spreadsheet' or " +
+            "mimeType='text/plain' or " +
+            "mimeType='application/pdf' or " +
+            "mimeType='application/msword' or " +
+            "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or " +
+            "mimeType='application/vnd.ms-excel' or " +
+            "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
+        );
+        
+        const url = `https://www.googleapis.com/drive/v3/files?` +
+            `q=${query}&` +
+            `orderBy=modifiedTime desc&` +
+            `pageSize=20&` +
+            `fields=files(id,name,mimeType,modifiedTime,webViewLink)`;
+        
+        console.log('URL de consulta:', url);
+        
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+        
+        console.log('Respuesta recibida:', response.status);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Error en la respuesta:', errorData);
+            throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Archivos encontrados:', data.files?.length || 0);
+        
+        return data.files || [];
+    } catch (error) {
+        console.error('Error al listar archivos:', error);
+        throw error;
+    }
+}
+
+// Función para mostrar selector de archivos de Drive
+async function showDriveFilePicker() {
+    try {
+        console.log('showDriveFilePicker iniciado');
+        apiStatus.innerHTML = '<div class="info">📂 Cargando tus archivos de Drive...</div>';
+        apiStatus.className = 'drive-status info';
+        
+        const files = await listUserDriveFiles();
+        
+        console.log('Archivos recibidos en picker:', files);
+        
+        if (files.length === 0) {
+            apiStatus.innerHTML = '<div class="info">ℹ️ No se encontraron documentos de Google Docs, PDFs o archivos de texto en tu Drive. Si tienes documentos, verifica que la API tenga los permisos correctos.</div>';
+            return;
+        }
+        
+        // Crear interfaz de selección de archivos
+        let pickerHTML = `
+            <div class="file-picker">
+                <h4>📂 Selecciona los documentos a cargar:</h4>
+                <div class="file-list">
+        `;
+        
+        files.forEach(file => {
+            const date = new Date(file.modifiedTime).toLocaleDateString('es-ES');
+            
+            // Determinar icono según tipo de archivo
+            let icon = '📄';
+            if (file.mimeType.includes('google-apps.document')) icon = '📝';
+            else if (file.mimeType.includes('google-apps.spreadsheet')) icon = '📊';
+            else if (file.mimeType.includes('google-apps.presentation')) icon = '📽️';
+            else if (file.mimeType.includes('pdf')) icon = '📕';
+            else if (file.mimeType.includes('word') || file.mimeType.includes('wordprocessing')) icon = '📘';
+            else if (file.mimeType.includes('excel') || file.mimeType.includes('spreadsheet')) icon = '📗';
+            else if (file.mimeType.includes('text')) icon = '📃';
+            
+            // Tipo de archivo legible
+            let fileType = '';
+            if (file.mimeType.includes('google-apps.document')) fileType = 'Google Docs';
+            else if (file.mimeType.includes('google-apps.spreadsheet')) fileType = 'Google Sheets';
+            else if (file.mimeType.includes('pdf')) fileType = 'PDF';
+            else if (file.mimeType.includes('wordprocessing')) fileType = 'Word (DOCX)';
+            else if (file.mimeType.includes('msword')) fileType = 'Word (DOC)';
+            else if (file.mimeType.includes('spreadsheetml')) fileType = 'Excel (XLSX)';
+            else if (file.mimeType.includes('ms-excel')) fileType = 'Excel (XLS)';
+            else fileType = 'Texto';
+            
+            pickerHTML += `
+                <label class="file-item">
+                    <input type="checkbox" value="${file.id}" data-name="${file.name}" data-mimetype="${file.mimeType}">
+                    <span class="file-info">
+                        <strong>${icon} ${file.name}</strong>
+                        <small>Tipo: ${fileType} | Modificado: ${date}</small>
+                    </span>
+                </label>
+            `;
+        });
+        
+        pickerHTML += `
+                </div>
+                <div class="file-picker-actions">
+                    <button id="loadSelectedFiles" class="connect-button">Cargar Seleccionados</button>
+                    <button id="loadAllFiles" class="connect-button secondary">Cargar Todos</button>
+                    <button id="cancelFilePicker" class="close-button">Cancelar</button>
+                </div>
+            </div>
+        `;
+        
+        apiStatus.innerHTML = pickerHTML;
+        apiStatus.className = 'drive-status';
+        
+        // Event listeners para los botones del picker
+        document.getElementById('loadSelectedFiles').addEventListener('click', async () => {
+            const checkboxes = document.querySelectorAll('.file-item input[type="checkbox"]:checked');
+            if (checkboxes.length === 0) {
+                alert('Por favor, selecciona al menos un archivo');
+                return;
+            }
+            
+            const selectedFiles = Array.from(checkboxes).map(cb => ({
+                id: cb.value,
+                name: cb.getAttribute('data-name'),
+                mimeType: cb.getAttribute('data-mimetype')
+            }));
+            
+            await loadDocumentsFromFiles(selectedFiles);
+        });
+        
+        document.getElementById('loadAllFiles').addEventListener('click', async () => {
+            await loadDocumentsFromFiles(files);
+        });
+        
+        document.getElementById('cancelFilePicker').addEventListener('click', () => {
+            apiStatus.innerHTML = '<div class="info">Operación cancelada</div>';
+            apiStatus.className = 'drive-status info';
+        });
+        
+    } catch (error) {
+        apiStatus.innerHTML = `<div class="error">✗ Error al cargar archivos: ${error.message}</div>`;
+        apiStatus.className = 'drive-status error';
+    }
 }
 
 // Función para iniciar sesión con Google
@@ -450,18 +885,31 @@ async function signIn() {
         const tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: googleClientId,
             scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly',
-            callback: (response) => {
+            callback: async (response) => {
                 if (response.error) {
                     console.error('Error de OAuth:', response);
                     apiStatus.innerHTML = `<div class="error">✗ Error de autenticación: ${response.error}${response.error_description ? ' - ' + response.error_description : ''}</div>`;
                     apiStatus.className = 'drive-status error';
                 } else {
                     console.log('Autenticación exitosa');
+                    console.log('Token recibido:', response.access_token.substring(0, 20) + '...');
                     localStorage.setItem('google_access_token', response.access_token);
                     isAuthenticated = true;
                     updateAuthUI();
-                    apiStatus.innerHTML = '<div class="success">✓ Sesión iniciada correctamente</div>';
+                    apiStatus.innerHTML = '<div class="success">✓ Sesión iniciada correctamente. Buscando tus documentos...</div>';
                     apiStatus.className = 'drive-status success';
+                    
+                    // Automáticamente mostrar selector de archivos después de iniciar sesión
+                    setTimeout(async () => {
+                        try {
+                            console.log('Iniciando carga de documentos...');
+                            await showDriveFilePicker();
+                        } catch (error) {
+                            console.error('Error en showDriveFilePicker:', error);
+                            apiStatus.innerHTML = `<div class="error">✗ Error al cargar documentos: ${error.message}</div>`;
+                            apiStatus.className = 'drive-status error';
+                        }
+                    }, 1500);
                 }
             }
         });
@@ -483,6 +931,10 @@ function signOut() {
     apiStatus.innerHTML = '<div class="info">Sesión cerrada</div>';
     apiStatus.className = 'drive-status info';
     
+    // Limpiar documentos cargados
+    driveDocuments = [];
+    documentsList.innerHTML = '';
+    
     // Revocar token si es posible
     if (typeof google !== 'undefined' && google.accounts) {
         const token = getAccessToken();
@@ -496,9 +948,11 @@ function signOut() {
 function updateAuthUI() {
     if (isAuthenticated && getAccessToken()) {
         signInButton.style.display = 'none';
+        loadDriveFilesButton.style.display = 'inline-block';
         signOutButton.style.display = 'inline-block';
     } else {
         signInButton.style.display = googleClientId ? 'inline-block' : 'none';
+        loadDriveFilesButton.style.display = 'none';
         signOutButton.style.display = 'none';
     }
 }
@@ -647,6 +1101,7 @@ settingsPanel.addEventListener('click', (e) => {
 // Event listeners para configuración de API
 saveApiConfigButton.addEventListener('click', saveApiConfig);
 signInButton.addEventListener('click', signIn);
+loadDriveFilesButton.addEventListener('click', showDriveFilePicker);
 signOutButton.addEventListener('click', signOut);
 
 // Cargar configuración al iniciar
