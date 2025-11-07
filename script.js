@@ -466,6 +466,274 @@ async function parseDOCXContent(arrayBuffer) {
     }
 }
 
+// ========================================
+// ADVANCED CSV PARSING FOR EXCEL FILES
+// ========================================
+
+// Función para parsear CSV de forma avanzada
+function parseCSVAdvanced(csvContent) {
+    try {
+        console.log('🔍 Iniciando análisis avanzado de CSV...');
+
+        // Dividir en líneas
+        const lines = csvContent.split('\n').filter(line => line.trim());
+
+        if (lines.length < 2) {
+            console.log('⚠️ CSV tiene menos de 2 líneas, usando análisis básico');
+            return {
+                content: csvContent,
+                structure: null,
+                columns: [],
+                analysis: 'CSV demasiado pequeño para análisis avanzado'
+            };
+        }
+
+        // Extraer headers
+        const headers = parseCSVLine(lines[0]);
+
+        // Extraer datos de muestra (primeras 100 líneas máximo)
+        const sampleData = lines.slice(1, Math.min(lines.length, 101)).map(line => parseCSVLine(line));
+
+        // Analizar estructura
+        const structure = analyzeCSVStructure(headers, sampleData);
+
+        console.log(`✅ Análisis completado: ${structure.columns.length} columnas detectadas`);
+
+        return {
+            content: csvContent,
+            structure: structure,
+            columns: structure.columns,
+            analysis: generateAnalysisSummary(structure)
+        };
+
+    } catch (error) {
+        console.error('❌ Error en análisis avanzado de CSV:', error);
+        return {
+            content: csvContent,
+            structure: null,
+            columns: [],
+            analysis: `Error en análisis: ${error.message}`
+        };
+    }
+}
+
+// Función auxiliar para parsear una línea CSV (maneja comillas y comas)
+function parseCSVLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    let i = 0;
+
+    while (i < line.length) {
+        const char = line[i];
+
+        if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                // Comilla escapada
+                current += '"';
+                i += 2;
+            } else {
+                // Toggle estado de comillas
+                inQuotes = !inQuotes;
+                i++;
+            }
+        } else if (char === ',' && !inQuotes) {
+            // Fin de campo
+            result.push(current.trim());
+            current = '';
+            i++;
+        } else {
+            current += char;
+            i++;
+        }
+    }
+
+    // Agregar último campo
+    result.push(current.trim());
+
+    return result;
+}
+
+// Función para analizar la estructura del CSV
+function analyzeCSVStructure(headers, sampleData) {
+    const columns = [];
+
+    headers.forEach((header, index) => {
+        const columnData = sampleData.map(row => row[index]).filter(val => val !== undefined && val !== '');
+
+        const analysis = analyzeColumn(header, columnData);
+
+        columns.push({
+            index: index,
+            name: header,
+            type: analysis.type,
+            category: analysis.category,
+            values: analysis.values,
+            sampleValues: columnData.slice(0, 5),
+            uniqueCount: analysis.uniqueValues.size,
+            nullCount: sampleData.length - columnData.length,
+            confidence: analysis.confidence
+        });
+    });
+
+    return {
+        columns: columns,
+        totalRows: sampleData.length,
+        hasHeaders: true,
+        detectedCategories: [...new Set(columns.map(col => col.category).filter(cat => cat !== 'unknown'))]
+    };
+}
+
+// Función para analizar una columna específica
+function analyzeColumn(header, values) {
+    const headerLower = header.toLowerCase().trim();
+
+    // Detectar tipo de columna basado en el nombre del header
+    const columnPatterns = {
+        // Estado/Status
+        status: /^(status|estado|state|situation|condición|condicion)$/i,
+        priority: /^(priority|prioridad|urgencia|importancia)$/i,
+        category: /^(category|categoría|tipo|type|clase|clasificación|class)$/i,
+        phase: /^(phase|fase|etapa|stage)$/i,
+
+        // Identificadores
+        id: /^(id|identificador|identifier|número|numero|number|code|código)$/i,
+        name: /^(name|nombre|titulo|título|title|subject|asunto)$/i,
+
+        // Fechas
+        date: /^(date|fecha|created|creado|modified|modificado|updated|actualizado)$/i,
+        deadline: /^(deadline|fecha.límite|fecha_limite|due|vencimiento)$/i,
+
+        // Personas
+        assignee: /^(assignee|asignado|assigned|responsable|owner|dueño)$/i,
+        creator: /^(creator|creador|author|autor)$/i,
+
+        // Métricas
+        amount: /^(amount|importe|monto|valor|value|price|precio|cost|costo)$/i,
+        quantity: /^(quantity|cantidad|qty|unidades|units)$/i,
+        progress: /^(progress|progreso|avance|porcentaje|percentage)$/i,
+
+        // Contacto
+        email: /^(email|correo|e-mail|mail)$/i,
+        phone: /^(phone|teléfono|telefono|mobile|celular)$/i,
+
+        // Ubicación
+        location: /^(location|ubicación|lugar|address|dirección|ciudad|city)$/i,
+        country: /^(country|país|pais|nation|nación)$/i
+    };
+
+    let category = 'unknown';
+    let type = 'text';
+
+    // Determinar categoría basada en header
+    for (const [cat, pattern] of Object.entries(columnPatterns)) {
+        if (pattern.test(headerLower)) {
+            category = cat;
+            break;
+        }
+    }
+
+    // Analizar valores únicos
+    const uniqueValues = new Set(values.map(v => v.toLowerCase().trim()));
+    const uniqueArray = Array.from(uniqueValues);
+
+    // Detectar valores categóricos comunes basados en la categoría
+    let expectedValues = [];
+    let confidence = 0.5; // Confianza base
+
+    switch (category) {
+        case 'status':
+            expectedValues = ['open', 'closed', 'pending', 'in progress', 'completed', 'cancelled', 'abierto', 'cerrado', 'pendiente', 'en progreso', 'completado', 'cancelado', 'activo', 'inactivo'];
+            break;
+        case 'priority':
+            expectedValues = ['high', 'medium', 'low', 'urgent', 'normal', 'alta', 'media', 'baja', 'urgente'];
+            break;
+        case 'phase':
+            expectedValues = ['planning', 'development', 'testing', 'deployment', 'maintenance', 'planeación', 'desarrollo', 'pruebas', 'despliegue', 'mantenimiento'];
+            break;
+        case 'progress':
+            type = 'number';
+            break;
+        case 'amount':
+        case 'quantity':
+            type = 'number';
+            break;
+        case 'date':
+            type = 'date';
+            break;
+        case 'email':
+            type = 'email';
+            break;
+        case 'phone':
+            type = 'phone';
+            break;
+    }
+
+    // Calcular confianza basada en matching con valores esperados
+    if (expectedValues.length > 0) {
+        const matchingValues = uniqueArray.filter(val =>
+            expectedValues.some(expected => val.includes(expected) || expected.includes(val))
+        );
+        confidence = Math.min(matchingValues.length / Math.max(uniqueArray.length, 1), 1);
+
+        // Si hay buena coincidencia, aumentar confianza
+        if (confidence > 0.6) {
+            confidence = Math.min(confidence + 0.3, 1);
+        }
+    }
+
+    // Detectar tipo basado en valores si no se determinó por categoría
+    if (type === 'text') {
+        const numericCount = values.filter(v => !isNaN(parseFloat(v)) && isFinite(v)).length;
+        const dateCount = values.filter(v => isValidDate(v)).length;
+
+        if (numericCount > values.length * 0.8) {
+            type = 'number';
+        } else if (dateCount > values.length * 0.6) {
+            type = 'date';
+        }
+    }
+
+    return {
+        type: type,
+        category: category,
+        values: expectedValues,
+        uniqueValues: uniqueValues,
+        confidence: confidence
+    };
+}
+
+// Función auxiliar para validar fechas
+function isValidDate(dateString) {
+    const date = new Date(dateString);
+    return !isNaN(date.getTime()) &&
+           dateString.match(/\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}|\d{2}-\d{2}-\d{4}/);
+}
+
+// Función para generar resumen del análisis
+function generateAnalysisSummary(structure) {
+    if (!structure) return 'Sin análisis disponible';
+
+    const categories = structure.detectedCategories;
+    const columns = structure.columns;
+
+    let summary = `CSV analizado: ${structure.totalRows} filas, ${columns.length} columnas.\n`;
+
+    if (categories.length > 0) {
+        summary += `Categorías detectadas: ${categories.join(', ')}.\n`;
+    }
+
+    // Resumir columnas importantes
+    const importantColumns = columns.filter(col => col.category !== 'unknown' && col.confidence > 0.5);
+    if (importantColumns.length > 0) {
+        summary += 'Columnas clave: ';
+        summary += importantColumns.map(col => `${col.name} (${col.category})`).join(', ');
+        summary += '.';
+    }
+
+    return summary;
+}
+
 // Función para leer el contenido de un archivo
 async function readFileContent(fileId, mimeType) {
     const accessToken = getAccessToken();
@@ -623,12 +891,12 @@ async function readFileContent(fileId, mimeType) {
         }
     }
 
-    // Para archivos Excel - seguir usando conversión de Google Drive
+    // Para archivos Excel - conversión avanzada con análisis de estructura
     if (mimeType.includes('excel') || mimeType.includes('spreadsheetml')) {
         if (accessToken) {
             try {
                 const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
-                console.log(`Convirtiendo Excel a CSV`);
+                console.log(`Convirtiendo Excel a CSV con análisis avanzado`);
 
                 const response = await fetch(exportUrl, {
                     headers: {
@@ -637,17 +905,44 @@ async function readFileContent(fileId, mimeType) {
                 });
 
                 if (response.ok) {
-                    const content = await response.text();
-                    console.log(`Excel convertido: ${content.length} caracteres`);
+                    const csvContent = await response.text();
+                    console.log(`Excel convertido: ${csvContent.length} caracteres`);
 
-                    // Guardar en caché
+                    // Aplicar análisis avanzado del CSV
+                    const advancedParse = parseCSVAdvanced(csvContent);
+
+                    // Crear contenido enriquecido con metadatos
+                    let enrichedContent = csvContent;
+
+                    // Agregar resumen del análisis al inicio del documento
+                    if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                        enrichedContent = `=== ANÁLISIS AVANZADO DEL DOCUMENTO EXCEL ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${csvContent}`;
+                    }
+
+                    // Agregar información detallada de columnas detectadas
+                    if (advancedParse.structure && advancedParse.structure.columns.length > 0) {
+                        enrichedContent += `\n\n=== METADATOS DE COLUMNAS ===\n`;
+                        advancedParse.structure.columns.forEach(col => {
+                            if (col.category !== 'unknown' || col.confidence > 0.3) {
+                                enrichedContent += `Columna "${col.name}": Tipo=${col.type}, Categoría=${col.category}, Confianza=${(col.confidence * 100).toFixed(0)}%\n`;
+                                if (col.sampleValues.length > 0) {
+                                    enrichedContent += `  Valores de muestra: ${col.sampleValues.slice(0, 3).join(', ')}\n`;
+                                }
+                            }
+                        });
+                    }
+
+                    // Guardar en caché con contenido enriquecido
                     saveDocumentToCache(fileId, {
-                        content: content,
+                        content: enrichedContent,
                         mimeType: mimeType,
-                        name: `Documento Excel ${fileId.substring(0, 12)}...`
+                        name: `Documento Excel ${fileId.substring(0, 12)}...`,
+                        structure: advancedParse.structure, // Guardar estructura para uso futuro
+                        analysis: advancedParse.analysis
                     });
 
-                    return content;
+                    console.log(`✅ Excel procesado con análisis avanzado: ${advancedParse.columns.length} columnas detectadas`);
+                    return enrichedContent;
                 }
             } catch (error) {
                 console.error('Error procesando Excel:', error);
@@ -1741,7 +2036,30 @@ async function analyzeDocumentsWithAI(userMessage) {
             const preview = doc.content.substring(0, charsToUse);
 
             context += `Documento ${index + 1}: "${doc.name}"\n`;
+            context += `Tipo MIME: ${doc.mimeType}\n`;
             context += `Tamaño total: ${doc.content.length} caracteres\n`;
+
+            // Agregar información de estructura si está disponible (para Excel procesado avanzadamente)
+            if (doc.structure && doc.structure.columns) {
+                const excelColumns = doc.structure.columns.filter(col => col.category !== 'unknown' && col.confidence > 0.5);
+                if (excelColumns.length > 0) {
+                    context += `📊 Columnas detectadas: ${excelColumns.map(col => `${col.name} (${col.category})`).join(', ')}\n`;
+                }
+
+                // Información específica sobre columnas categóricas
+                const categoricalColumns = doc.structure.columns.filter(col =>
+                    ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
+                );
+                if (categoricalColumns.length > 0) {
+                    context += `🏷️ Columnas categóricas: `;
+                    categoricalColumns.forEach(col => {
+                        const values = Array.from(col.uniqueValues).slice(0, 5).join('/');
+                        context += `${col.name}(${values}${col.uniqueCount > 5 ? '...' : ''}) `;
+                    });
+                    context += '\n';
+                }
+            }
+
             context += `Contenido: ${preview}${doc.content.length > charsToUse ? '...\n[Contenido truncado por límite de contexto]' : ''}\n\n`;
 
             totalCharsUsed += charsToUse;
@@ -1753,7 +2071,12 @@ async function analyzeDocumentsWithAI(userMessage) {
         const messages = [
             {
                 role: 'system',
-                content: `Eres un asistente inteligente especializado en analizar ÚNICAMENTE el contenido de documentos proporcionados.
+                content: `Eres un asistente inteligente especializado en analizar documentos, incluyendo archivos Excel procesados con análisis avanzado de estructura.
+
+CAPACIDADES ESPECIALES PARA EXCEL:
+- Algunos documentos Excel han sido procesados con análisis avanzado que detecta automáticamente columnas como "Status", "Priority", "Category", etc.
+- Si ves información sobre "📊 Columnas detectadas" o "🏷️ Columnas categóricas", significa que el sistema ha identificado la estructura del documento
+- Puedes usar esta información para hacer consultas más inteligentes sobre estados, prioridades, categorías, etc.
 
 REGLAS ESTRICTAS:
 1. SOLO puedes responder preguntas basándote en la información que está EXPLÍCITAMENTE contenida en los documentos proporcionados
@@ -1766,6 +2089,7 @@ Tu objetivo es:
 - Responder SOLO con información que existe en los documentos
 - Citar o referenciar qué documento contiene la información
 - Ser claro cuando algo NO está en los documentos
+- Aprovechar la información de estructura de Excel cuando esté disponible para dar respuestas más contextuales
 - Proporcionar análisis ÚNICAMENTE basado en el contenido disponible
 
 Estilo: Profesional, preciso y honesto sobre las limitaciones de los documentos.`
