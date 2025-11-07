@@ -195,21 +195,43 @@ body {
     color: #333;
 }
 
-.close-button {
+.settings-actions {
+    display: flex;
+    gap: 10px;
     margin-top: 20px;
-    padding: 10px 20px;
+    flex-wrap: wrap;
+}
+
+.secondary-button {
+    flex: 1;
+    padding: 10px 15px;
     background: #6c757d;
     color: white;
     border: none;
     border-radius: 8px;
     font-size: 14px;
     cursor: pointer;
-    width: 100%;
+    transition: background 0.3s;
+}
+
+.secondary-button:hover {
+    background: #5a6268;
+}
+
+.close-button {
+    flex: 1;
+    padding: 10px 20px;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
     transition: background 0.3s;
 }
 
 .close-button:hover {
-    background: #5a6268;
+    background: #c82333;
 }
 
 .drive-instructions {
@@ -459,12 +481,38 @@ body {
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-/* Indicador de escritura */
+/* Indicador de escritura mejorado */
 .typing-indicator .message-content {
-    background: #e8e8e8;
-    color: #666;
-    font-style: italic;
-    animation: pulse 1.5s ease-in-out infinite;
+    background: #f0f8ff;
+    color: #333;
+    border: 2px solid #667eea;
+    border-radius: 18px;
+}
+
+.loading-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid #667eea;
+    border-top: 3px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+.loading-text {
+    font-style: normal;
+    color: #667eea;
+    font-weight: 500;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 
 @keyframes pulse {
@@ -630,5 +678,26 @@ body {
 
 .file-list::-webkit-scrollbar-thumb:hover {
     background: #555;
+}
+
+/* Cache Stats Styles */
+.cache-stats {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+}
+
+.cache-stats h4 {
+    color: #667eea;
+    margin-bottom: 10px;
+    font-size: 16px;
+}
+
+.cache-stats p {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 10px;
 }
 

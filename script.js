@@ -1,3 +1,28 @@
+/**
+ * TAbot - Chatbot con IA y Google Drive
+ *
+ * ARQUITECTURA:
+ * - Interfaz de usuario moderna con estados de carga mejorados
+ * - Persistencia de conversaciones en localStorage
+ * - Sistema de caché inteligente de documentos (7 días)
+ * - Integración con xAI (Grok) para IA inteligente
+ * - Soporte completo para Google Drive y múltiples formatos de archivo
+ * - Validación robusta de entradas y manejo de errores
+ *
+ * FUNCIONALIDADES PRINCIPALES:
+ * ✅ Chat conversacional con respuestas predefinidas
+ * ✅ Análisis inteligente de documentos con IA
+ * ✅ Búsqueda semántica y selección automática de documentos relevantes
+ * ✅ Caché local para mejorar rendimiento
+ * ✅ Soporte para +10 tipos de archivos (Office, PDF, OpenOffice, etc.)
+ * ✅ Autenticación OAuth 2.0 con Google Drive
+ * ✅ Interfaz responsive y moderna
+ */
+
+// ========================================
+// CONFIGURACIÓN E INICIALIZACIÓN
+// ========================================
+
 // Elementos del DOM
 const chatMessages = document.getElementById('chatMessages');
 const userInput = document.getElementById('userInput');
@@ -22,6 +47,9 @@ const signOutButton = document.getElementById('signOutButton');
 const loadDriveFilesButton = document.getElementById('loadDriveFilesButton');
 const apiStatus = document.getElementById('apiStatus');
 const aiIndicator = document.getElementById('aiIndicator');
+const clearConversationButton = document.getElementById('clearConversationButton');
+const cacheInfo = document.getElementById('cacheInfo');
+const clearCacheButton = document.getElementById('clearCacheButton');
 
 // Almacenamiento de documentos de Google Drive
 let driveDocuments = []; // Documentos con contenido completo (cargados bajo demanda)
@@ -116,23 +144,28 @@ async function getBotResponse(userMessage) {
     // PRIORIDAD 1: Si hay xAI configurado, usar IA con búsqueda inteligente
     if (xaiApiKey) {
         console.log('✅ xAI está configurado, intentando usar IA...');
+        updateLoadingIndicator('🔍 Buscando documentos relevantes...');
         try {
             // Si hay metadata disponible, buscar documentos relevantes
             if (documentMetadata.length > 0) {
                 console.log(`📚 Buscando en ${documentMetadata.length} documentos indexados...`);
+                updateLoadingIndicator('🤖 Analizando documentos con IA...');
 
                 // Buscar documentos relevantes usando xAI (semántico) o keywords (fallback)
                 const relevantDocs = await findRelevantDocumentsWithAI(userMessage, documentMetadata);
 
                 if (relevantDocs.length > 0) {
+                    updateLoadingIndicator('📥 Cargando contenido de documentos...');
                     // Cargar contenido completo de los documentos relevantes
                     const docIds = relevantDocs.map(d => d.id);
                     await loadFullContentForDocs(docIds);
 
                     console.log(`📄 Usando xAI con ${driveDocuments.length} documentos relevantes...`);
+                    updateLoadingIndicator('🧠 Generando respuesta inteligente...');
                     const aiResponse = await analyzeDocumentsWithAI(userMessage);
                     if (aiResponse) {
                         console.log('✅ Respuesta de xAI con documentos recibida');
+                        updateLoadingIndicator('✨ Preparando respuesta final...');
 
                         // Agregar nota sobre qué documentos se consultaron y cómo fueron seleccionados
                         const docNames = relevantDocs.slice(0, 3).map(d => d.name).join(', ');
@@ -160,9 +193,11 @@ async function getBotResponse(userMessage) {
             // Si no hay metadata pero hay documentos completos cargados, usar esos
             else if (driveDocuments.length > 0) {
                 console.log('📄 Usando xAI con documentos cargados manualmente...');
+                updateLoadingIndicator('🧠 Generando respuesta inteligente...');
                 const aiResponse = await analyzeDocumentsWithAI(userMessage);
                 if (aiResponse) {
                     console.log('✅ Respuesta de xAI con documentos recibida');
+                    updateLoadingIndicator('✨ Preparando respuesta...');
                     return aiResponse;
                 }
             } else {
@@ -227,11 +262,18 @@ async function sendMessage() {
     // Limpiar input
     userInput.value = '';
     
-    // Mostrar indicador de escritura
+    // Mostrar indicador de escritura mejorado
     const typingIndicator = document.createElement('div');
     typingIndicator.className = 'message bot-message typing-indicator';
     typingIndicator.id = 'typing-indicator';
-    typingIndicator.innerHTML = '<div class="message-content">🤖 Pensando...</div>';
+    typingIndicator.innerHTML = `
+        <div class="message-content">
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">🤖 Analizando tu pregunta...</div>
+            </div>
+        </div>
+    `;
     chatMessages.appendChild(typingIndicator);
     chatMessages.scrollTop = chatMessages.scrollHeight;
     
@@ -247,6 +289,9 @@ async function sendMessage() {
         
         // Agregar respuesta del bot
         addMessage(botResponse, false);
+
+        // Guardar conversación después de cada intercambio
+        setTimeout(() => saveConversation(), 100); // Pequeño delay para asegurar que el DOM esté actualizado
     } catch (error) {
         console.error('Error al obtener respuesta:', error);
 
@@ -424,9 +469,18 @@ async function parseDOCXContent(arrayBuffer) {
 // Función para leer el contenido de un archivo
 async function readFileContent(fileId, mimeType) {
     const accessToken = getAccessToken();
-    
+
     console.log(`Leyendo archivo ${fileId} de tipo ${mimeType}`);
-    
+
+    // PRIMERO: Verificar si el documento está en caché
+    const cachedDoc = getDocumentFromCache(fileId);
+    if (cachedDoc && cachedDoc.mimeType === mimeType) {
+        console.log(`🚀 Usando documento en caché para ${fileId}`);
+        return cachedDoc.content;
+    }
+
+    // SEGUNDO: Si no está en caché, descargar del servidor
+
     // Para documentos de Google (Docs, Sheets, Slides)
     if (mimeType.includes('google-apps')) {
         const exportMimeType = mimeType.includes('document') ? 'text/plain' :
@@ -447,6 +501,14 @@ async function readFileContent(fileId, mimeType) {
                 if (response.ok) {
                     const content = await response.text();
                     console.log(`Contenido leído: ${content.length} caracteres`);
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: content,
+                        mimeType: mimeType,
+                        name: `Documento ${fileId.substring(0, 12)}...`
+                    });
+
                     return content;
                 } else {
                     console.error('Error en exportación:', response.status);
@@ -474,6 +536,14 @@ async function readFileContent(fileId, mimeType) {
                     const arrayBuffer = await response.arrayBuffer();
                     const text = await parsePDFContent(arrayBuffer);
                     console.log(`✅ PDF procesado: ${text.length} caracteres extraídos`);
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: text,
+                        mimeType: mimeType,
+                        name: `Documento PDF ${fileId.substring(0, 12)}...`
+                    });
+
                     return text;
                 } else {
                     throw new Error(`Error al descargar PDF: ${response.status}`);
@@ -501,6 +571,14 @@ async function readFileContent(fileId, mimeType) {
                     const arrayBuffer = await response.arrayBuffer();
                     const text = await parseDOCXContent(arrayBuffer);
                     console.log(`✅ DOCX procesado: ${text.length} caracteres extraídos`);
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: text,
+                        mimeType: mimeType,
+                        name: `Documento Word ${fileId.substring(0, 12)}...`
+                    });
+
                     return text;
                 } else {
                     throw new Error(`Error al descargar DOCX: ${response.status}`);
@@ -508,6 +586,39 @@ async function readFileContent(fileId, mimeType) {
             } catch (error) {
                 console.error('Error procesando DOCX:', error);
                 throw new Error(`No se pudo leer el DOCX: ${error.message}`);
+            }
+        }
+    }
+
+    // Para archivos PowerPoint - convertir a texto plano usando Google Drive
+    if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) {
+        if (accessToken) {
+            try {
+                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
+                console.log(`Convirtiendo PowerPoint a texto`);
+
+                const response = await fetch(exportUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const content = await response.text();
+                    console.log(`PowerPoint convertido: ${content.length} caracteres`);
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: content,
+                        mimeType: mimeType,
+                        name: `Presentación PowerPoint ${fileId.substring(0, 12)}...`
+                    });
+
+                    return content;
+                }
+            } catch (error) {
+                console.error('Error procesando PowerPoint:', error);
+                throw new Error(`No se pudo leer la presentación de PowerPoint: ${error.message}`);
             }
         }
     }
@@ -528,6 +639,14 @@ async function readFileContent(fileId, mimeType) {
                 if (response.ok) {
                     const content = await response.text();
                     console.log(`Excel convertido: ${content.length} caracteres`);
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: content,
+                        mimeType: mimeType,
+                        name: `Documento Excel ${fileId.substring(0, 12)}...`
+                    });
+
                     return content;
                 }
             } catch (error) {
@@ -537,6 +656,92 @@ async function readFileContent(fileId, mimeType) {
         }
     }
     
+    // Para archivos OpenOffice/LibreOffice
+    if (mimeType.includes('opendocument') || mimeType.includes('openoffice')) {
+        if (accessToken) {
+            try {
+                // Intentar convertir usando Google Drive API
+                // Primero determinar el tipo de documento OpenOffice
+                let exportMimeType = 'text/plain';
+                if (mimeType.includes('text')) {
+                    exportMimeType = 'text/plain'; // .odt -> texto
+                } else if (mimeType.includes('spreadsheet')) {
+                    exportMimeType = 'text/csv'; // .ods -> CSV
+                } else if (mimeType.includes('presentation')) {
+                    exportMimeType = 'text/plain'; // .odp -> texto
+                }
+
+                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportMimeType}`;
+                console.log(`Convirtiendo archivo OpenOffice a ${exportMimeType}`);
+
+                const response = await fetch(exportUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const content = await response.text();
+                    console.log(`OpenOffice convertido: ${content.length} caracteres`);
+
+                    // Determinar tipo de archivo para el nombre
+                    let fileType = 'OpenOffice';
+                    if (mimeType.includes('text')) fileType = 'Documento OpenOffice';
+                    else if (mimeType.includes('spreadsheet')) fileType = 'Hoja de cálculo OpenOffice';
+                    else if (mimeType.includes('presentation')) fileType = 'Presentación OpenOffice';
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: content,
+                        mimeType: mimeType,
+                        name: `${fileType} ${fileId.substring(0, 12)}...`
+                    });
+
+                    return content;
+                }
+            } catch (error) {
+                console.error('Error procesando archivo OpenOffice:', error);
+                throw new Error(`No se pudo leer el archivo OpenOffice: ${error.message}`);
+            }
+        }
+    }
+
+    // Para otros archivos de Office antiguos - intentar conversión genérica
+    if (mimeType.includes('msword') || mimeType.includes('word') ||
+        mimeType.includes('excel') || mimeType.includes('powerpoint') ||
+        mimeType.includes('officedocument')) {
+        if (accessToken) {
+            try {
+                // Intentar conversión genérica a texto plano
+                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
+                console.log(`Intentando conversión genérica de Office a texto`);
+
+                const response = await fetch(exportUrl, {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const content = await response.text();
+                    console.log(`Archivo Office convertido: ${content.length} caracteres`);
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: content,
+                        mimeType: mimeType,
+                        name: `Archivo Office ${fileId.substring(0, 12)}...`
+                    });
+
+                    return content;
+                }
+            } catch (error) {
+                console.error('Error procesando archivo Office:', error);
+                throw new Error(`No se pudo leer el archivo Office: ${error.message}`);
+            }
+        }
+    }
+
     // Para archivos de texto plano
     if (mimeType.includes('text/plain')) {
         if (accessToken) {
@@ -548,7 +753,16 @@ async function readFileContent(fileId, mimeType) {
                     }
                 });
                 if (response.ok) {
-                    return await response.text();
+                    const content = await response.text();
+
+                    // Guardar en caché
+                    saveDocumentToCache(fileId, {
+                        content: content,
+                        mimeType: mimeType,
+                        name: `Archivo de texto ${fileId.substring(0, 12)}...`
+                    });
+
+                    return content;
                 }
             } catch (error) {
                 console.error('Error descargando archivo:', error);
@@ -845,6 +1059,132 @@ let googleApiKey = null;
 let xaiApiKey = null;
 let isAuthenticated = false;
 
+// Función para validar API Key de xAI
+function validateXaiApiKey(apiKey) {
+    if (!apiKey || typeof apiKey !== 'string') {
+        return { isValid: false, error: 'La API Key de xAI es requerida' };
+    }
+
+    const trimmed = apiKey.trim();
+    if (trimmed.length === 0) {
+        return { isValid: false, error: 'La API Key de xAI no puede estar vacía' };
+    }
+
+    // xAI keys typically start with "xai-"
+    if (!trimmed.startsWith('xai-')) {
+        return { isValid: false, error: 'La API Key de xAI debe comenzar con "xai-"' };
+    }
+
+    if (trimmed.length < 20) {
+        return { isValid: false, error: 'La API Key de xAI parece ser demasiado corta' };
+    }
+
+    return { isValid: true };
+}
+
+// Función para validar Client ID de Google
+function validateGoogleClientId(clientId) {
+    if (!clientId || typeof clientId !== 'string') {
+        return { isValid: false, error: 'El Client ID de Google es requerido' };
+    }
+
+    const trimmed = clientId.trim();
+    if (trimmed.length === 0) {
+        return { isValid: false, error: 'El Client ID de Google no puede estar vacío' };
+    }
+
+    // Google OAuth client IDs end with .googleusercontent.com or .apps.googleusercontent.com
+    if (!trimmed.includes('.googleusercontent.com') && !trimmed.includes('.apps.googleusercontent.com')) {
+        return { isValid: false, error: 'El Client ID debe terminar en ".apps.googleusercontent.com" o ".googleusercontent.com"' };
+    }
+
+    if (trimmed.length < 30) {
+        return { isValid: false, error: 'El Client ID de Google parece ser demasiado corto' };
+    }
+
+    return { isValid: true };
+}
+
+// Función para validar IDs de documentos de Google Drive
+function validateDocumentIds(idsText) {
+    if (!idsText || typeof idsText !== 'string') {
+        return { isValid: false, error: 'Los IDs de documentos son requeridos' };
+    }
+
+    const trimmed = idsText.trim();
+    if (trimmed.length === 0) {
+        return { isValid: false, error: 'Debes ingresar al menos un ID de documento' };
+    }
+
+    // Separar por líneas o comas
+    const ids = trimmed
+        .split(/[,\n]/)
+        .map(id => id.trim())
+        .filter(id => id.length > 0);
+
+    if (ids.length === 0) {
+        return { isValid: false, error: 'No se encontraron IDs de documentos válidos' };
+    }
+
+    // Validar formato de cada ID
+    const googleDriveIdPattern = /^[a-zA-Z0-9_-]{25,}$/;
+    const googleDriveUrlPattern = /\/d\/([a-zA-Z0-9_-]{25,})/;
+
+    const invalidIds = [];
+    ids.forEach(id => {
+        // Si es una URL completa, extraer el ID
+        const urlMatch = id.match(googleDriveUrlPattern);
+        if (urlMatch) {
+            id = urlMatch[1];
+        }
+
+        // Validar el ID
+        if (!googleDriveIdPattern.test(id)) {
+            invalidIds.push(id);
+        }
+    });
+
+    if (invalidIds.length > 0) {
+        return {
+            isValid: false,
+            error: `Los siguientes IDs no son válidos: ${invalidIds.slice(0, 3).join(', ')}${invalidIds.length > 3 ? '...' : ''}. Los IDs deben tener al menos 25 caracteres alfanuméricos.`
+        };
+    }
+
+    if (ids.length > 50) {
+        return {
+            isValid: false,
+            error: 'Demasiados documentos. Máximo 50 IDs permitidos para evitar sobrecargar el navegador.'
+        };
+    }
+
+    return { isValid: true, cleanIds: ids };
+}
+
+// Función para validar URL de carpeta de Google Drive
+function validateDriveFolderUrl(url) {
+    if (!url || typeof url !== 'string') {
+        return { isValid: false, error: 'La URL de la carpeta es requerida' };
+    }
+
+    const trimmed = url.trim();
+    if (trimmed.length === 0) {
+        return { isValid: false, error: 'La URL de la carpeta no puede estar vacía' };
+    }
+
+    // Verificar que sea una URL de Google Drive
+    if (!trimmed.includes('drive.google.com') && !trimmed.includes('docs.google.com')) {
+        return { isValid: false, error: 'La URL debe ser de Google Drive (drive.google.com o docs.google.com)' };
+    }
+
+    // Verificar que contenga una carpeta
+    if (!trimmed.includes('/folders/') && !trimmed.includes('folder?id=')) {
+        return { isValid: false, error: 'La URL debe apuntar a una carpeta compartida de Google Drive' };
+    }
+
+    return { isValid: true };
+}
+
 // Función para obtener token de acceso
 function getAccessToken() {
     return localStorage.getItem('google_access_token') || null;
@@ -856,6 +1196,308 @@ function updateAIIndicator() {
         aiIndicator.style.display = 'block';
     } else {
         aiIndicator.style.display = 'none';
+    }
+}
+
+// ========================================
+// MEJORAS DE UX - ESTADOS DE CARGA
+// ========================================
+
+// Función para actualizar el indicador de carga
+function updateLoadingIndicator(message) {
+    const indicator = document.getElementById('typing-indicator');
+    if (indicator) {
+        const loadingText = indicator.querySelector('.loading-text');
+        if (loadingText) {
+            loadingText.textContent = message;
+        }
+    }
+}
+
+// ========================================
+// SISTEMA DE CACHÉ DE DOCUMENTOS
+// ========================================
+
+// Configuración del caché de documentos
+const DOCUMENT_CACHE_KEY = 'document_cache';
+const CACHE_EXPIRY_DAYS = 7; // Documentos se mantienen en caché por 7 días
+const MAX_CACHE_SIZE_MB = 50; // Máximo 50MB de caché
+
+// Función para obtener el tamaño de un objeto en bytes
+function getObjectSize(obj) {
+    return new Blob([JSON.stringify(obj)]).size;
+}
+
+// Función para limpiar caché expirado y por tamaño
+function cleanDocumentCache() {
+    try {
+        const cacheData = localStorage.getItem(DOCUMENT_CACHE_KEY);
+        if (!cacheData) return;
+
+        const cache = JSON.parse(cacheData);
+        const now = Date.now();
+        const expiryTime = CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000; // 7 días en ms
+
+        // Filtrar documentos expirados
+        const validDocuments = {};
+        let totalSize = 0;
+
+        Object.entries(cache.documents || {}).forEach(([docId, docData]) => {
+            if ((now - docData.cachedAt) < expiryTime) {
+                const docSize = getObjectSize(docData);
+                if (totalSize + docSize < MAX_CACHE_SIZE_MB * 1024 * 1024) { // Convertir MB a bytes
+                    validDocuments[docId] = docData;
+                    totalSize += docSize;
+                }
+            }
+        });
+
+        // Actualizar caché
+        const cleanedCache = {
+            documents: validDocuments,
+            lastCleaned: now,
+            version: '1.0'
+        };
+
+        localStorage.setItem(DOCUMENT_CACHE_KEY, JSON.stringify(cleanedCache));
+        console.log(`🧹 Caché limpiado: ${Object.keys(validDocuments).length} documentos válidos (${Math.round(totalSize / 1024 / 1024 * 100) / 100}MB)`);
+
+    } catch (error) {
+        console.error('Error limpiando caché:', error);
+    }
+}
+
+// Función para guardar documento en caché
+function saveDocumentToCache(docId, documentData) {
+    try {
+        let cache = { documents: {}, lastCleaned: Date.now(), version: '1.0' };
+
+        // Cargar caché existente
+        const existingCache = localStorage.getItem(DOCUMENT_CACHE_KEY);
+        if (existingCache) {
+            cache = JSON.parse(existingCache);
+        }
+
+        // Limpiar caché periódicamente (cada 24 horas)
+        const timeSinceLastClean = Date.now() - (cache.lastCleaned || 0);
+        if (timeSinceLastClean > 24 * 60 * 60 * 1000) { // 24 horas
+            cleanDocumentCache();
+            // Recargar caché después de limpieza
+            const cleanedCache = localStorage.getItem(DOCUMENT_CACHE_KEY);
+            if (cleanedCache) {
+                cache = JSON.parse(cleanedCache);
+            }
+        }
+
+        // Agregar documento al caché
+        cache.documents[docId] = {
+            ...documentData,
+            cachedAt: Date.now()
+        };
+
+        // Verificar límite de tamaño antes de guardar
+        const newSize = getObjectSize(cache);
+        if (newSize > MAX_CACHE_SIZE_MB * 1024 * 1024) {
+            console.warn('⚠️ Caché muy grande, limpiando antes de guardar...');
+            cleanDocumentCache();
+            // Intentar guardar nuevamente
+            const cleanedCache = localStorage.getItem(DOCUMENT_CACHE_KEY);
+            if (cleanedCache) {
+                cache = JSON.parse(cleanedCache);
+            }
+            cache.documents[docId] = {
+                ...documentData,
+                cachedAt: Date.now()
+            };
+        }
+
+        localStorage.setItem(DOCUMENT_CACHE_KEY, JSON.stringify(cache));
+        console.log(`💾 Documento ${docId} guardado en caché`);
+
+    } catch (error) {
+        console.error('Error guardando documento en caché:', error);
+    }
+}
+
+// Función para obtener documento del caché
+function getDocumentFromCache(docId) {
+    try {
+        const cacheData = localStorage.getItem(DOCUMENT_CACHE_KEY);
+        if (!cacheData) return null;
+
+        const cache = JSON.parse(cacheData);
+        const docData = cache.documents[docId];
+
+        if (!docData) return null;
+
+        // Verificar si no ha expirado
+        const now = Date.now();
+        const expiryTime = CACHE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+        if ((now - docData.cachedAt) > expiryTime) {
+            console.log(`⏰ Documento ${docId} expirado en caché`);
+            return null;
+        }
+
+        console.log(`✅ Documento ${docId} cargado desde caché`);
+        return docData;
+
+    } catch (error) {
+        console.error('Error obteniendo documento del caché:', error);
+        return null;
+    }
+}
+
+// Función para verificar si un documento está en caché
+function isDocumentInCache(docId) {
+    return getDocumentFromCache(docId) !== null;
+}
+
+// Función para obtener estadísticas del caché
+function getCacheStats() {
+    try {
+        const cacheData = localStorage.getItem(DOCUMENT_CACHE_KEY);
+        if (!cacheData) return { documents: 0, size: 0 };
+
+        const cache = JSON.parse(cacheData);
+        const size = getObjectSize(cache);
+        return {
+            documents: Object.keys(cache.documents || {}).length,
+            size: Math.round(size / 1024 / 1024 * 100) / 100 // MB con 2 decimales
+        };
+    } catch (error) {
+        console.error('Error obteniendo estadísticas del caché:', error);
+        return { documents: 0, size: 0 };
+    }
+}
+
+// Función para actualizar la información del caché en la UI
+function updateCacheInfo() {
+    try {
+        const stats = getCacheStats();
+        const cacheData = localStorage.getItem(DOCUMENT_CACHE_KEY);
+        let lastCleaned = 'Nunca';
+
+        if (cacheData) {
+            const cache = JSON.parse(cacheData);
+            if (cache.lastCleaned) {
+                lastCleaned = new Date(cache.lastCleaned).toLocaleDateString('es-ES');
+            }
+        }
+
+        cacheInfo.innerHTML = `
+            <strong>${stats.documents} documentos</strong> en caché (${stats.size} MB)<br>
+            <small>Última limpieza: ${lastCleaned}</small>
+        `;
+    } catch (error) {
+        cacheInfo.innerHTML = 'Error al cargar información del caché';
+        console.error('Error actualizando info del caché:', error);
+    }
+}
+
+// ========================================
+// PERSISTENCIA DE CONVERSACIONES
+// ========================================
+
+// Función para guardar conversación en localStorage
+function saveConversation() {
+    try {
+        const messages = [];
+        const messageElements = chatMessages.querySelectorAll('.message');
+
+        messageElements.forEach(msgEl => {
+            const isUser = msgEl.classList.contains('user-message');
+            const contentEl = msgEl.querySelector('.message-content');
+            if (contentEl) {
+                messages.push({
+                    isUser: isUser,
+                    content: contentEl.textContent,
+                    timestamp: Date.now()
+                });
+            }
+        });
+
+        if (messages.length > 0) {
+            const conversationData = {
+                messages: messages,
+                lastUpdated: Date.now(),
+                version: '1.0'
+            };
+
+            localStorage.setItem('chatbot_conversation', JSON.stringify(conversationData));
+            console.log('Conversación guardada en localStorage');
+        }
+    } catch (error) {
+        console.error('Error guardando conversación:', error);
+    }
+}
+
+// Función para cargar conversación desde localStorage
+function loadConversation() {
+    try {
+        const savedData = localStorage.getItem('chatbot_conversation');
+        if (!savedData) {
+            console.log('No hay conversación guardada');
+            return false;
+        }
+
+        const conversationData = JSON.parse(savedData);
+
+        // Validar estructura de datos
+        if (!conversationData.messages || !Array.isArray(conversationData.messages)) {
+            console.warn('Datos de conversación inválidos, eliminando...');
+            localStorage.removeItem('chatbot_conversation');
+            return false;
+        }
+
+        // Limpiar mensajes existentes (excepto el inicial)
+        const existingMessages = chatMessages.querySelectorAll('.message');
+        const initialMessage = existingMessages[0]; // Mantener mensaje de bienvenida
+
+        // Limpiar todos los mensajes
+        while (chatMessages.firstChild) {
+            chatMessages.removeChild(chatMessages.firstChild);
+        }
+
+        // Agregar mensaje inicial de vuelta
+        if (initialMessage) {
+            chatMessages.appendChild(initialMessage);
+        }
+
+        // Agregar mensajes guardados
+        conversationData.messages.forEach(msgData => {
+            if (msgData.isUser !== undefined && msgData.content) {
+                addMessage(msgData.content, msgData.isUser);
+            }
+        });
+
+        console.log(`Conversación cargada: ${conversationData.messages.length} mensajes`);
+        return true;
+
+    } catch (error) {
+        console.error('Error cargando conversación:', error);
+        // Limpiar datos corruptos
+        localStorage.removeItem('chatbot_conversation');
+        return false;
+    }
+}
+
+// Función para limpiar conversación guardada
+function clearSavedConversation() {
+    try {
+        localStorage.removeItem('chatbot_conversation');
+        console.log('Conversación eliminada de localStorage');
+    } catch (error) {
+        console.error('Error eliminando conversación:', error);
+    }
+}
+
+// Función para verificar si hay conversación guardada
+function hasSavedConversation() {
+    try {
+        const savedData = localStorage.getItem('chatbot_conversation');
+        return !!savedData;
+    } catch (error) {
+        return false;
     }
 }
 
@@ -895,13 +1537,33 @@ function saveApiConfig() {
     const clientId = clientIdInput.value.trim();
     const apiKey = apiKeyInput.value.trim();
     const xaiKey = xaiApiKeyInput.value.trim();
-    
-    console.log('Intentando guardar configuración...', { 
-        clientId: clientId ? clientId.substring(0, 20) + '...' : 'vacío', 
+
+    console.log('Intentando guardar configuración...', {
+        clientId: clientId ? clientId.substring(0, 20) + '...' : 'vacío',
         hasApiKey: !!apiKey,
-        hasXaiKey: !!xaiKey 
+        hasXaiKey: !!xaiKey
     });
-    
+
+    // Validar xAI API Key si está presente
+    if (xaiKey) {
+        const xaiValidation = validateXaiApiKey(xaiKey);
+        if (!xaiValidation.isValid) {
+            apiStatus.innerHTML = `<div class="error">✗ ${xaiValidation.error}</div>`;
+            apiStatus.className = 'drive-status error';
+            return;
+        }
+    }
+
+    // Validar Client ID de Google si está presente
+    if (clientId) {
+        const clientIdValidation = validateGoogleClientId(clientId);
+        if (!clientIdValidation.isValid) {
+            apiStatus.innerHTML = `<div class="error">✗ ${clientIdValidation.error}</div>`;
+            apiStatus.className = 'drive-status error';
+            return;
+        }
+    }
+
     // Validar que al menos haya Client ID o xAI Key
     if (!clientId && !xaiKey) {
         apiStatus.innerHTML = '<div class="error">✗ Por favor, ingresa al menos el Client ID de Google o la API Key de xAI</div>';
@@ -909,10 +1571,7 @@ function saveApiConfig() {
         return;
     }
     
-    // Validar formato básico del Client ID si está presente
-    if (clientId && !clientId.includes('.apps.googleusercontent.com')) {
-        console.warn('Client ID no sigue el formato estándar, pero se guardará de todas formas');
-    }
+    // La validación completa ya se realizó arriba
     
     try {
         // Guardar en variables
@@ -989,7 +1648,7 @@ async function initGoogleAPI() {
 }
 
 // ========================================
-// INTEGRACIÓN CON xAI (GROK)
+// INTEGRACIÓN CON xAI (GROK) - IA INTELIGENTE
 // ========================================
 
 // Función para llamar a la API de xAI (Grok)
@@ -1164,16 +1823,28 @@ async function listUserDriveFiles() {
     try {
         console.log('Buscando archivos en Google Drive...');
 
-        // Listar todos los documentos compatibles (Google Docs, PDFs, Office, etc.)
+        // Listar todos los documentos compatibles (Google Docs, PDFs, Office, OpenOffice, etc.)
         const query = encodeURIComponent(
+            // Google Workspace
             "mimeType='application/vnd.google-apps.document' or " +
             "mimeType='application/vnd.google-apps.spreadsheet' or " +
+            "mimeType='application/vnd.google-apps.presentation' or " +
+            // Texto plano
             "mimeType='text/plain' or " +
+            // PDF
             "mimeType='application/pdf' or " +
-            "mimeType='application/msword' or " +
+            // Microsoft Office (nuevo)
             "mimeType='application/vnd.openxmlformats-officedocument.wordprocessingml.document' or " +
+            "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or " +
+            "mimeType='application/vnd.openxmlformats-officedocument.presentationml.presentation' or " +
+            // Microsoft Office (antiguo)
+            "mimeType='application/msword' or " +
             "mimeType='application/vnd.ms-excel' or " +
-            "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
+            "mimeType='application/vnd.ms-powerpoint' or " +
+            // OpenOffice/LibreOffice
+            "mimeType='application/vnd.oasis.opendocument.text' or " +
+            "mimeType='application/vnd.oasis.opendocument.spreadsheet' or " +
+            "mimeType='application/vnd.oasis.opendocument.presentation'"
         );
 
         let allFiles = [];
@@ -1266,20 +1937,29 @@ async function showDriveFilePicker() {
             else if (file.mimeType.includes('google-apps.spreadsheet')) icon = '📊';
             else if (file.mimeType.includes('google-apps.presentation')) icon = '📽️';
             else if (file.mimeType.includes('pdf')) icon = '📕';
-            else if (file.mimeType.includes('word') || file.mimeType.includes('wordprocessing')) icon = '📘';
-            else if (file.mimeType.includes('excel') || file.mimeType.includes('spreadsheet')) icon = '📗';
+            else if (file.mimeType.includes('word') || file.mimeType.includes('wordprocessing') || file.mimeType.includes('msword')) icon = '📘';
+            else if (file.mimeType.includes('excel') || file.mimeType.includes('spreadsheet') || file.mimeType.includes('ms-excel')) icon = '📗';
+            else if (file.mimeType.includes('powerpoint') || file.mimeType.includes('presentation')) icon = '📽️';
+            else if (file.mimeType.includes('opendocument.text') || file.mimeType.includes('oasis')) icon = '📄';
             else if (file.mimeType.includes('text')) icon = '📃';
             
             // Tipo de archivo legible
             let fileType = '';
             if (file.mimeType.includes('google-apps.document')) fileType = 'Google Docs';
             else if (file.mimeType.includes('google-apps.spreadsheet')) fileType = 'Google Sheets';
+            else if (file.mimeType.includes('google-apps.presentation')) fileType = 'Google Slides';
             else if (file.mimeType.includes('pdf')) fileType = 'PDF';
-            else if (file.mimeType.includes('wordprocessing')) fileType = 'Word (DOCX)';
+            else if (file.mimeType.includes('openxmlformats-officedocument.wordprocessingml')) fileType = 'Word (DOCX)';
             else if (file.mimeType.includes('msword')) fileType = 'Word (DOC)';
-            else if (file.mimeType.includes('spreadsheetml')) fileType = 'Excel (XLSX)';
+            else if (file.mimeType.includes('openxmlformats-officedocument.spreadsheetml')) fileType = 'Excel (XLSX)';
             else if (file.mimeType.includes('ms-excel')) fileType = 'Excel (XLS)';
-            else fileType = 'Texto';
+            else if (file.mimeType.includes('openxmlformats-officedocument.presentationml')) fileType = 'PowerPoint (PPTX)';
+            else if (file.mimeType.includes('ms-powerpoint')) fileType = 'PowerPoint (PPT)';
+            else if (file.mimeType.includes('opendocument.text')) fileType = 'OpenOffice Writer (ODT)';
+            else if (file.mimeType.includes('opendocument.spreadsheet')) fileType = 'OpenOffice Calc (ODS)';
+            else if (file.mimeType.includes('opendocument.presentation')) fileType = 'OpenOffice Impress (ODP)';
+            else if (file.mimeType.includes('text')) fileType = 'Texto';
+            else fileType = 'Documento';
             
             pickerHTML += `
                 <label class="file-item">
@@ -1473,23 +2153,25 @@ function displayDocumentsList() {
 // Función para conectar Google Drive usando URL
 async function connectDrive() {
     const url = driveFolderUrl.value.trim();
-    
-    if (!url) {
-        driveStatus.innerHTML = '<div class="error">✗ Por favor, ingresa una URL de Google Drive</div>';
+
+    // Validar la URL de la carpeta
+    const validation = validateDriveFolderUrl(url);
+    if (!validation.isValid) {
+        driveStatus.innerHTML = `<div class="error">✗ ${validation.error}</div>`;
         driveStatus.className = 'drive-status error';
         return;
     }
-    
+
     const folderId = extractFolderId(url);
-    
+
     if (!folderId) {
-        driveStatus.innerHTML = '<div class="error">✗ URL inválida. Por favor, verifica la URL de la carpeta de Google Drive</div>';
+        driveStatus.innerHTML = '<div class="error">✗ No se pudo extraer el ID de la carpeta de la URL. Verifica que la URL sea correcta.</div>';
         driveStatus.className = 'drive-status error';
         return;
     }
-    
+
     driveFolderId = folderId;
-    
+
     try {
         const files = await fetchDriveFiles(folderId);
         await loadDocumentsFromFiles(files);
@@ -1501,16 +2183,18 @@ async function connectDrive() {
 
 // Función para cargar documentos desde IDs
 async function connectWithIds() {
-    const idsText = driveDocumentIds.value.trim();
-    
-    if (!idsText) {
-        driveStatus.innerHTML = '<div class="error">✗ Por favor, ingresa al menos un ID de documento</div>';
+    const idsText = driveDocumentIds.value;
+
+    // Validar los IDs de documentos
+    const validation = validateDocumentIds(idsText);
+    if (!validation.isValid) {
+        driveStatus.innerHTML = `<div class="error">✗ ${validation.error}</div>`;
         driveStatus.className = 'drive-status error';
         return;
     }
-    
+
     try {
-        const files = processDocumentIds(idsText);
+        const files = processDocumentIds(validation.cleanIds.join('\n'));
         await loadDocumentsFromFiles(files);
     } catch (error) {
         driveStatus.innerHTML = `<div class="error">✗ ${error.message}</div>`;
@@ -1640,6 +2324,8 @@ async function loadDocumentsFromFiles(files) {
 // Panel de configuración
 settingsButton.addEventListener('click', () => {
     settingsPanel.style.display = 'flex';
+    // Actualizar información del caché cuando se abre el panel
+    updateCacheInfo();
 });
 
 closeSettingsButton.addEventListener('click', () => {
@@ -1677,8 +2363,47 @@ signInButton.addEventListener('click', signIn);
 loadDriveFilesButton.addEventListener('click', showDriveFilePicker);
 signOutButton.addEventListener('click', signOut);
 
+// Event listener para limpiar conversación
+clearConversationButton.addEventListener('click', () => {
+    if (confirm('¿Estás seguro de que quieres limpiar toda la conversación? Esta acción no se puede deshacer.')) {
+        // Limpiar mensajes del chat (mantener solo el mensaje inicial)
+        const initialMessage = chatMessages.querySelector('.message.bot-message');
+        chatMessages.innerHTML = '';
+        if (initialMessage) {
+            chatMessages.appendChild(initialMessage);
+        }
+
+        // Limpiar conversación guardada
+        clearSavedConversation();
+
+        // Mostrar confirmación
+        addMessage('Conversación limpiada. ¡Hola de nuevo! 👋', false);
+    }
+});
+
+// Event listener para limpiar caché
+clearCacheButton.addEventListener('click', () => {
+    if (confirm('¿Estás seguro de que quieres limpiar el caché de documentos? Los documentos se volverán a descargar cuando sea necesario.')) {
+        try {
+            localStorage.removeItem(DOCUMENT_CACHE_KEY);
+            updateCacheInfo();
+            console.log('Caché de documentos limpiado');
+            alert('Caché de documentos limpiado exitosamente.');
+        } catch (error) {
+            console.error('Error limpiando caché:', error);
+            alert('Error al limpiar el caché.');
+        }
+    }
+});
+
+// Limpiar caché de documentos expirados al iniciar
+cleanDocumentCache();
+
 // Cargar configuración al iniciar
 loadApiConfig();
+
+// Cargar conversación guardada al iniciar
+loadConversation();
 
 // Enfocar el input al cargar
 userInput.focus();

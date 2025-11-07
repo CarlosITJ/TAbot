@@ -50,14 +50,24 @@ Un chatbot web simple y elegante creado con HTML, CSS y JavaScript vanilla, con 
 
 El chatbot puede leer los siguientes tipos de archivos:
 
-- ✅ **Google Docs** - Lectura completa
-- ✅ **Google Sheets** - Convertido a CSV
-- ✅ **Archivos de texto (.txt)** - Lectura directa
-- ⚠️ **PDF** - Conversión a texto (puede tener limitaciones con imágenes/gráficos)
-- ⚠️ **Word (.doc, .docx)** - Conversión a texto mediante Google Drive
-- ⚠️ **Excel (.xls, .xlsx)** - Conversión a texto mediante Google Drive
+- ✅ **Google Workspace**
+  - Google Docs - Lectura completa
+  - Google Sheets - Convertido a CSV
+  - Google Slides - Convertido a texto
+- ✅ **Archivos de texto** (.txt) - Lectura directa
+- ✅ **PDF** - Extracción de texto avanzada con PDF.js
+- ✅ **Microsoft Office**
+  - Word (.doc, .docx) - Extracción con mammoth.js y conversión Google Drive
+  - Excel (.xls, .xlsx) - Conversión a CSV mediante Google Drive
+  - PowerPoint (.ppt, .pptx) - Conversión a texto mediante Google Drive
+- ✅ **OpenOffice/LibreOffice**
+  - Writer (.odt) - Conversión mediante Google Drive
+  - Calc (.ods) - Conversión a CSV mediante Google Drive
+  - Impress (.odp) - Conversión a texto mediante Google Drive
 
-**Recomendación:** Para mejor compatibilidad, convierte tus archivos de Office (Word, Excel) y PDFs a Google Docs/Sheets directamente en Google Drive (clic derecho → Abrir con → Google Docs/Sheets).
+**Sistema de caché inteligente:** Los documentos se almacenan localmente por 7 días para mejorar el rendimiento y reducir las descargas.
+
+**Recomendación:** Para mejor compatibilidad, convierte tus archivos de Office antiguos (.doc, .xls, .ppt) a formatos modernos (.docx, .xlsx, .pptx) antes de subirlos.
 
 ## 🤖 Configurar xAI (Grok) para IA Inteligente
 

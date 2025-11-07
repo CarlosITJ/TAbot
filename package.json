@@ -1,0 +1,67 @@
+{
+  "name": "tabot-chatbot",
+  "version": "2.0.0",
+  "description": "Chatbot inteligente con integración de Google Drive y xAI (Grok)",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000 || node server.js || php -S localhost:8000",
+    "dev": "python -m http.server 8000",
+    "serve": "python -m http.server 8000",
+    "serve:node": "npx http-server -p 8000",
+    "serve:php": "php -S localhost:8000"
+  },
+  "keywords": [
+    "chatbot",
+    "ai",
+    "google-drive",
+    "xai",
+    "grok",
+    "javascript",
+    "web-app"
+  ],
+  "author": "Salomon Hernandez",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/tabot"
+  },
+  "homepage": "https://github.com/username/tabot#readme",
+  "bugs": {
+    "url": "https://github.com/username/tabot/issues"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "browserslist": [
+    "last 2 versions",
+    "> 1%",
+    "not ie 11"
+  ],
+  "project": {
+    "name": "TAbot",
+    "features": [
+      "Conversational AI with xAI (Grok)",
+      "Google Drive integration",
+      "Document caching system",
+      "Multi-format file support (PDF, Office, OpenOffice)",
+      "Conversation persistence",
+      "Responsive web interface"
+    ],
+    "supportedFiles": [
+      "Google Docs, Sheets, Slides",
+      "PDF (with PDF.js)",
+      "Microsoft Office (Word, Excel, PowerPoint)",
+      "OpenOffice/LibreOffice (Writer, Calc, Impress)",
+      "Plain text files"
+    ],
+    "externalLibraries": [
+      "PDF.js (CDN)",
+      "mammoth.js (CDN)",
+      "Google Identity Services (CDN)"
+    ]
+  }
+}
