@@ -27,6 +27,10 @@ const aiIndicator = document.getElementById('aiIndicator');
 let driveDocuments = [];
 let driveFolderId = null;
 
+// Constantes de configuración
+const MAX_DOC_PREVIEW_LENGTH = 2000; // Caracteres máximos por documento enviados a la IA
+const SEARCH_CONTEXT_LENGTH = 100; // Caracteres de contexto antes/después de una coincidencia
+
 // Respuestas predefinidas del chatbot
 const responses = {
     'hola': ['¡Hola! ¿Cómo estás?', '¡Hola! Encantado de hablar contigo.', '¡Hola! ¿En qué puedo ayudarte?'],
@@ -63,8 +67,8 @@ function searchInDocuments(query) {
         if (contentLower.includes(queryLower)) {
             // Encontrar el contexto alrededor de la coincidencia
             const index = contentLower.indexOf(queryLower);
-            const start = Math.max(0, index - 100);
-            const end = Math.min(doc.content.length, index + query.length + 100);
+            const start = Math.max(0, index - SEARCH_CONTEXT_LENGTH);
+            const end = Math.min(doc.content.length, index + query.length + SEARCH_CONTEXT_LENGTH);
             const context = doc.content.substring(start, end);
             
             matchingDocs.push({
@@ -100,7 +104,7 @@ async function getBotResponse(userMessage) {
         documentsLoaded: driveDocuments.length
     });
     
-    // PRIORIDAD 1: Si hay xAI configurado, usar IA
+    // PRIORIDAD 1: Si hay xAI configurado, usar IA SOLO con documentos cargados
     if (xaiApiKey) {
         console.log('✅ xAI está configurado, intentando usar IA...');
         try {
@@ -113,13 +117,9 @@ async function getBotResponse(userMessage) {
                     return aiResponse;
                 }
             } else {
-                // Sin documentos, respuesta inteligente general
-                console.log('💬 Usando xAI sin documentos...');
-                const aiResponse = await getSmartResponse(userMessage);
-                if (aiResponse) {
-                    console.log('✅ Respuesta de xAI general recibida');
-                    return aiResponse;
-                }
+                // Sin documentos, informar al usuario que necesita cargar documentos
+                console.log('⚠️ xAI configurado pero sin documentos cargados');
+                return 'Para usar la IA inteligente, por favor carga documentos de Google Drive primero. Haz clic en el botón de configuración (⚙️) y conecta tus documentos.';
             }
         } catch (error) {
             console.error('❌ Error con xAI, usando fallback:', error);
@@ -200,15 +200,29 @@ async function sendMessage() {
         addMessage(botResponse, false);
     } catch (error) {
         console.error('Error al obtener respuesta:', error);
-        
+
         // Remover indicador de escritura
         const indicator = document.getElementById('typing-indicator');
         if (indicator) {
             indicator.remove();
         }
-        
-        // Mostrar error al usuario
-        addMessage('Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo.', false);
+
+        // Mostrar error específico al usuario
+        let errorMessage = 'Lo siento, hubo un error al procesar tu mensaje. ';
+
+        if (error.message && error.message.includes('API Key')) {
+            errorMessage += 'Verifica que tu API Key de xAI sea correcta en la configuración.';
+        } else if (error.message && error.message.includes('401')) {
+            errorMessage += 'Tu API Key no es válida o ha expirado. Verifica la configuración.';
+        } else if (error.message && error.message.includes('429')) {
+            errorMessage += 'Has excedido el límite de solicitudes. Espera un momento e intenta de nuevo.';
+        } else if (error.message && error.message.includes('Network') || error.message && error.message.includes('Failed to fetch')) {
+            errorMessage += 'Error de conexión. Verifica tu conexión a internet.';
+        } else {
+            errorMessage += 'Por favor, intenta de nuevo.';
+        }
+
+        addMessage(errorMessage, false);
     }
 }
 
@@ -640,28 +654,35 @@ async function analyzeDocumentsWithAI(userMessage) {
         
         driveDocuments.forEach((doc, index) => {
             // Limitar el contenido para no exceder límites de tokens
-            const preview = doc.content.substring(0, 2000);
+            const preview = doc.content.substring(0, MAX_DOC_PREVIEW_LENGTH);
             context += `Documento ${index + 1}: "${doc.name}"\n`;
-            context += `Contenido: ${preview}${doc.content.length > 2000 ? '...' : ''}\n\n`;
+            context += `Contenido: ${preview}${doc.content.length > MAX_DOC_PREVIEW_LENGTH ? '...' : ''}\n\n`;
         });
         
         // Crear mensajes para xAI
         const messages = [
             {
                 role: 'system',
-                content: `Eres un asistente inteligente que analiza documentos y proporciona respuestas detalladas, análisis profundos y sugerencias útiles. 
-                
-Tu objetivo es:
-1. Responder preguntas sobre el contenido de los documentos
-2. Proporcionar análisis y perspectivas
-3. Dar sugerencias y recomendaciones cuando sea apropiado
-4. Ser claro, conciso y útil
+                content: `Eres un asistente inteligente especializado en analizar ÚNICAMENTE el contenido de documentos proporcionados.
 
-Estilo: Profesional pero amigable, directo y práctico.`
+REGLAS ESTRICTAS:
+1. SOLO puedes responder preguntas basándote en la información que está EXPLÍCITAMENTE contenida en los documentos proporcionados
+2. NO uses tu conocimiento general ni información externa a los documentos
+3. Si la respuesta NO está en los documentos, debes decir claramente: "No puedo responder esa pregunta porque la información no se encuentra en los documentos proporcionados"
+4. NO inventes, supongas o infierras información que no esté explícitamente en los documentos
+5. Si solo tienes información parcial en los documentos, indica qué información está disponible y qué no
+
+Tu objetivo es:
+- Responder SOLO con información que existe en los documentos
+- Citar o referenciar qué documento contiene la información
+- Ser claro cuando algo NO está en los documentos
+- Proporcionar análisis ÚNICAMENTE basado en el contenido disponible
+
+Estilo: Profesional, preciso y honesto sobre las limitaciones de los documentos.`
             },
             {
                 role: 'user',
-                content: `${context}\n\nUsuario pregunta: ${userMessage}\n\nPor favor, analiza la pregunta en el contexto de los documentos proporcionados y da una respuesta útil con análisis y sugerencias si aplica.`
+                content: `${context}\n\nUsuario pregunta: ${userMessage}\n\nRecuerda: SOLO responde con información que esté contenida en los documentos anteriores. Si la respuesta no está en los documentos, indícalo claramente.`
             }
         ];
         
@@ -1025,38 +1046,65 @@ async function loadDocumentsFromFiles(files) {
     driveStatus.innerHTML = '<div class="info">Cargando documentos...</div>';
     driveStatus.className = 'drive-status info';
     
-    // Leer contenido de cada archivo
+    // Leer contenido de cada archivo en paralelo para mejor rendimiento
     driveDocuments = [];
-    let successCount = 0;
-    
-    for (const file of files) {
-        try {
-            const content = await readFileContent(file.id, file.mimeType);
-            // Intentar obtener el nombre real del documento
-            let fileName = file.name;
-            try {
-                // Intentar obtener el nombre desde el contenido o URL
-                const docUrl = `https://docs.google.com/document/d/${file.id}`;
-                fileName = file.name;
-            } catch (e) {
-                // Mantener el nombre por defecto
-            }
-            
-            driveDocuments.push({
+    const errors = []; // Rastrear documentos que fallaron
+
+    // Cargar todos los documentos en paralelo
+    const loadPromises = files.map(file =>
+        readFileContent(file.id, file.mimeType)
+            .then(content => ({
+                success: true,
                 id: file.id,
-                name: fileName,
+                name: file.name,
                 content: content,
                 mimeType: file.mimeType
+            }))
+            .catch(error => {
+                console.error(`Error leyendo ${file.name}:`, error);
+                return {
+                    success: false,
+                    name: file.name,
+                    error: error.message || 'Error desconocido'
+                };
+            })
+    );
+
+    const results = await Promise.all(loadPromises);
+
+    // Procesar resultados
+    results.forEach(result => {
+        if (result.success) {
+            driveDocuments.push({
+                id: result.id,
+                name: result.name,
+                content: result.content,
+                mimeType: result.mimeType
             });
-            successCount++;
-        } catch (error) {
-            console.error(`Error leyendo ${file.name}:`, error);
-            // Continuar con los demás documentos
+        } else {
+            errors.push({
+                name: result.name,
+                error: result.error
+            });
         }
-    }
+    });
+
+    const successCount = driveDocuments.length;
     
     if (driveDocuments.length > 0) {
-        driveStatus.innerHTML = `<div class="success">✓ ${successCount} documento(s) cargado(s) exitosamente</div>`;
+        let statusMessage = `<div class="success">✓ ${successCount} documento(s) cargado(s) exitosamente</div>`;
+
+        // Mostrar errores si hubo alguno
+        if (errors.length > 0) {
+            statusMessage += '<div class="warning" style="margin-top: 10px;">';
+            statusMessage += `<strong>⚠ ${errors.length} documento(s) fallaron:</strong><ul style="margin: 5px 0; padding-left: 20px;">`;
+            errors.forEach(err => {
+                statusMessage += `<li><strong>${err.name}</strong>: ${err.error}</li>`;
+            });
+            statusMessage += '</ul></div>';
+        }
+
+        driveStatus.innerHTML = statusMessage;
         driveStatus.className = 'drive-status success';
         displayDocumentsList();
     } else {
