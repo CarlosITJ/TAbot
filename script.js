@@ -256,32 +256,43 @@ function extractFolderId(url) {
 }
 
 
-// Función para obtener lista de archivos de una carpeta
+// Función para obtener lista de archivos de una carpeta (con paginación completa)
 async function fetchDriveFiles(folderId) {
     const accessToken = getAccessToken();
-    
+
     if (!accessToken) {
         throw new Error('No hay sesión activa. Por favor, inicia sesión primero.');
     }
-    
+
     // Usar Google Drive API v3 directamente con fetch
     try {
-        const response = await fetch(
-            `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType)&pageSize=100`,
-            {
+        let allFiles = [];
+        let nextPageToken = null;
+
+        // Paginar hasta obtener todos los archivos
+        do {
+            const url = `https://www.googleapis.com/drive/v3/files?q='${folderId}'+in+parents+and+trashed=false&fields=files(id,name,mimeType),nextPageToken&pageSize=100${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+
+            const response = await fetch(url, {
                 headers: {
                     'Authorization': `Bearer ${accessToken}`
                 }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
             }
-        );
-        
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        return data.files || [];
+
+            const data = await response.json();
+            allFiles = allFiles.concat(data.files || []);
+            nextPageToken = data.nextPageToken;
+
+            console.log(`📄 Página cargada: ${data.files?.length || 0} archivos (total: ${allFiles.length})`);
+        } while (nextPageToken);
+
+        console.log(`✅ Total de archivos obtenidos de la carpeta: ${allFiles.length}`);
+        return allFiles;
     } catch (error) {
         console.error('Error con Google Drive API:', error);
         throw new Error('No se pudo acceder a la carpeta: ' + (error.message || String(error)));
@@ -814,17 +825,17 @@ async function getSmartResponse(userMessage) {
     }
 }
 
-// Función para listar archivos recientes de Google Drive del usuario
+// Función para listar archivos recientes de Google Drive del usuario (con paginación completa)
 async function listUserDriveFiles() {
     const accessToken = getAccessToken();
-    
+
     if (!accessToken) {
         throw new Error('No hay sesión activa');
     }
-    
+
     try {
         console.log('Buscando archivos en Google Drive...');
-        
+
         // Listar todos los documentos compatibles (Google Docs, PDFs, Office, etc.)
         const query = encodeURIComponent(
             "mimeType='application/vnd.google-apps.document' or " +
@@ -836,33 +847,43 @@ async function listUserDriveFiles() {
             "mimeType='application/vnd.ms-excel' or " +
             "mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'"
         );
-        
-        const url = `https://www.googleapis.com/drive/v3/files?` +
-            `q=${query}&` +
-            `orderBy=modifiedTime desc&` +
-            `pageSize=20&` +
-            `fields=files(id,name,mimeType,modifiedTime,webViewLink)`;
-        
-        console.log('URL de consulta:', url);
-        
-        const response = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
+
+        let allFiles = [];
+        let nextPageToken = null;
+
+        // Paginar hasta obtener todos los archivos
+        do {
+            const url = `https://www.googleapis.com/drive/v3/files?` +
+                `q=${query}&` +
+                `orderBy=modifiedTime desc&` +
+                `pageSize=100&` +
+                `fields=files(id,name,mimeType,modifiedTime,webViewLink),nextPageToken${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+
+            console.log('Solicitando página de archivos...');
+
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+
+            console.log('Respuesta recibida:', response.status);
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error('Error en la respuesta:', errorData);
+                throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
             }
-        });
-        
-        console.log('Respuesta recibida:', response.status);
-        
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('Error en la respuesta:', errorData);
-            throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        console.log('Archivos encontrados:', data.files?.length || 0);
-        
-        return data.files || [];
+
+            const data = await response.json();
+            allFiles = allFiles.concat(data.files || []);
+            nextPageToken = data.nextPageToken;
+
+            console.log(`📄 Página cargada: ${data.files?.length || 0} archivos (total: ${allFiles.length})`);
+        } while (nextPageToken);
+
+        console.log(`✅ Total de archivos encontrados: ${allFiles.length}`);
+        return allFiles;
     } catch (error) {
         console.error('Error al listar archivos:', error);
         throw error;
