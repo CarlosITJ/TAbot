@@ -6,13 +6,17 @@ Un chatbot web simple y elegante creado con HTML, CSS y JavaScript vanilla, con 
 
 - 🎨 Interfaz moderna y responsive
 - 🤖 **Integración con xAI (Grok)** - Inteligencia Artificial avanzada
-- 💬 Análisis profundo de documentos con IA
-- 📁 Integración con Google Drive para leer documentos
-- 🔍 Búsqueda inteligente en documentos vinculados
-- 💡 Sugerencias y recomendaciones automáticas
+- 🔬 **Análisis Avanzado de Documentos** - Detección automática de estructura
+- 📊 **Análisis Inteligente de Excel** - Columnas Status, Priority, Category
+- 📄 **Análisis Estructural de Documentos** - Encabezados, secciones, tablas
+- 📕 **Procesamiento Multi-Página PDF** - Análisis por página con estructura
+- 📁 Integración completa con Google Drive
+- 🔍 Búsqueda inteligente y selección de documentos relevantes (hasta 15 docs)
+- 💡 Respuestas sintéticas de múltiples documentos
 - 🕐 Respuestas sobre hora y fecha
 - ⚡ Respuestas predefinidas como respaldo
 - 📱 Funciona en cualquier navegador moderno
+- 🧠 **IA con Contexto Estructural** - Comprende jerarquías y relaciones
 
 ## Cómo usar
 
@@ -48,26 +52,150 @@ Un chatbot web simple y elegante creado con HTML, CSS y JavaScript vanilla, con 
 
 ### Tipos de archivos compatibles
 
-El chatbot puede leer los siguientes tipos de archivos:
+El chatbot puede leer los siguientes tipos de archivos con **análisis avanzado de estructura**:
 
-- ✅ **Google Workspace**
-  - Google Docs - Lectura completa
-  - Google Sheets - Convertido a CSV
-  - Google Slides - Convertido a texto
-- ✅ **Archivos de texto** (.txt) - Lectura directa
-- ✅ **PDF** - Extracción de texto avanzada con PDF.js
-- ✅ **Microsoft Office**
-  - Word (.doc, .docx) - Extracción con mammoth.js y conversión Google Drive
-  - Excel (.xls, .xlsx) - Conversión a CSV mediante Google Drive
-  - PowerPoint (.ppt, .pptx) - Conversión a texto mediante Google Drive
-- ✅ **OpenOffice/LibreOffice**
-  - Writer (.odt) - Conversión mediante Google Drive
-  - Calc (.ods) - Conversión a CSV mediante Google Drive
-  - Impress (.odp) - Conversión a texto mediante Google Drive
+- 🔬 **Google Workspace** (Análisis Inteligente)
+  - 📄 **Google Docs** - Análisis de encabezados, secciones, tablas y listas
+  - 📊 **Google Sheets** - Detección automática de columnas (Status, Priority, etc.)
+  - 📽️ **Google Slides** - Estructura de presentaciones y contenido jerárquico
+- ✅ **Archivos de texto** (.txt) - Lectura directa con análisis básico
+- 🔬 **PDF** - Análisis multi-página con detección de tablas y secciones
+- 🔬 **Microsoft Office** (Análisis Avanzado)
+  - 📄 **Word** (.doc, .docx) - Análisis de encabezados, párrafos y formato
+  - 📊 **Excel** (.xls, .xlsx) - Conversión inteligente con detección de columnas
+  - 📽️ **PowerPoint** (.ppt, .pptx) - Estructura de diapositivas
+- 🔬 **OpenOffice/LibreOffice** (Análisis Inteligente)
+  - 📄 **Writer** (.odt) - Análisis de estructura de documentos
+  - 📊 **Calc** (.ods) - Conversión CSV con análisis de columnas
+  - 📽️ **Impress** (.odp) - Estructura de presentaciones
+
+**🔬 = Análisis Avanzado**: Detección automática de estructura, tablas, listas y elementos organizativos
 
 **Sistema de caché inteligente:** Los documentos se almacenan localmente por 7 días para mejorar el rendimiento y reducir las descargas.
 
 **Recomendación:** Para mejor compatibilidad, convierte tus archivos de Office antiguos (.doc, .xls, .ppt) a formatos modernos (.docx, .xlsx, .pptx) antes de subirlos.
+
+## 🔍 Arquitectura de Análisis Avanzado
+
+### Diagrama de Procesamiento Inteligente
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   DOCUMENTO     │───▶│  ANÁLISIS        │───▶│  AI CONTEXT     │
+│   ENTRADA       │    │  AVANZADO        │    │  ENRIQUECIDO    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+```
+
+### 🔄 Pipeline de Procesamiento de Documentos
+
+```
+Usuario Pregunta
+        │
+        ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  SELECCIÓN AI   │────▶│   CARGA DE      │────▶│   ANÁLISIS       │
+│  DOCUMENTOS     │     │   CONTENIDO     │     │   MULTI-DOC      │
+│  RELEVANTES     │     │   COMPLETO      │     │   INTELIGENTE    │
+│  (xAI)          │     │   (caché)       │     │   (xAI)          │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                       │                       │
+        ▼                       ▼                       ▼
+   Hasta 15 docs            Estructura            Respuesta
+   más relevantes          detectada          sintetizada
+```
+
+### 📊 Tipos de Análisis por Formato
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ANÁLISIS AVANZADO DE DOCUMENTOS                │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  📊 EXCEL/SHEETS                                                │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ 📋 Columnas: Status, Priority, Category, Phase         │    │
+│  │ 📋 Tipos: Text, Number, Date, Email                     │    │
+│  │ 📋 Valores: open/closed, high/medium/low, etc.          │    │
+│  │ 📋 Confianza: 0-100% (precisión de detección)           │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  📄 GOOGLE DOCS / WORD                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ 📑 Encabezados: H1, H2, H3 (jerarquía)                  │    │
+│  │ 📝 Listas: Numeradas, viñetas, anidadas                 │    │
+│  │ 📊 Tablas: Filas, columnas, contenido estructurado      │    │
+│  │ 📄 Secciones: Grupos de contenido por temas             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  📕 PDFS                                                        │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ 📑 Páginas: Análisis individual por página              │    │
+│  │ 📋 Headers/Footers: Metadatos del documento             │    │
+│  │ 📊 Tablas: Detección cross-página                       │    │
+│  │ 📝 Listas: Estructuras dentro del documento             │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+│  📽️ PRESENTACIONES                                             │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ 📊 Diapositivas: Estructura y organización              │    │
+│  │ 📝 Contenido: Títulos, bullets, secciones               │    │
+│  │ 🎯 Elementos: Jerarquía visual de información           │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 🤖 IA con Contexto Estructural
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                CONTEXTO AI INTELIGENTE                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  📊 Columnas detectadas:                                    │
+│     • Status (estado): open/closed/pending                  │
+│     • Priority (prioridad): high/medium/low                 │
+│     • Category (categoría): feature/bug/enhancement         │
+│                                                             │
+│  📄 Estructura detectada:                                   │
+│     • 15 encabezados, 3 tablas, 5 listas                    │
+│     • 25 páginas analizadas                                 │
+│                                                             │
+│  🏷️ Columnas categóricas:                                   │
+│     • Status(open/closed/pending/in progress)               │
+│     • Priority(high/medium/low/urgent)                      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+Pregunta: "¿Cuántos tickets están abiertos?"
+IA: [Analiza columnas Status, filtra por "open", cuenta resultados]
+
+Pregunta: "¿Cuáles son las secciones principales?"
+IA: [Revisa encabezados detectados, proporciona estructura]
+```
+
+### 📈 Beneficios del Análisis Avanzado
+
+- **🎯 Consultas Precisar**: Pregunta sobre estados, prioridades, categorías específicas
+- **📊 Análisis Estructurado**: Comprende jerarquías y relaciones en documentos
+- **🔍 Búsqueda Inteligente**: Encuentra información relevante por contexto estructural
+- **📋 Respuestas Sintéticas**: Combina información de múltiples documentos
+- **⚡ Rendimiento Optimizado**: Caché inteligente con metadatos estructurales
+
+### 💡 Ejemplos de Uso Avanzado
+
+```
+Usuario: "¿Qué proyectos tienen prioridad alta?"
+Sistema: [Analiza columna "Priority", filtra por "high", lista proyectos]
+
+Usuario: "¿Cuántas secciones tiene el documento?"
+Sistema: [Cuenta encabezados detectados, proporciona resumen estructural]
+
+Usuario: "¿Qué tablas contienen datos de ventas?"
+Sistema: [Busca tablas en documentos, analiza contenido por columnas]
+```
 
 ## 🤖 Configurar xAI (Grok) para IA Inteligente
 
