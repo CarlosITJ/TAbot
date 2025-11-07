@@ -24,13 +24,20 @@ const apiStatus = document.getElementById('apiStatus');
 const aiIndicator = document.getElementById('aiIndicator');
 
 // Almacenamiento de documentos de Google Drive
-let driveDocuments = [];
+let driveDocuments = []; // Documentos con contenido completo (cargados bajo demanda)
+let documentMetadata = []; // Metadata ligera de TODOS los documentos (título + preview)
 let driveFolderId = null;
 
 // Constantes de configuración
 const MAX_DOC_PREVIEW_LENGTH = 100000; // Caracteres máximos por documento enviados a la IA (100k chars ≈ 25k tokens)
 const TOTAL_CONTEXT_BUDGET = 400000; // Presupuesto total de caracteres para todos los documentos (~100k tokens, bien dentro del límite de 2M de Grok-4)
 const SEARCH_CONTEXT_LENGTH = 200; // Caracteres de contexto antes/después de una coincidencia (aumentado para mejor contexto)
+const MAX_DOCUMENTS_RECOMMENDED = 50; // Número recomendado de documentos a cargar simultáneamente
+const MAX_DOCUMENTS_HARD_LIMIT = 100; // Límite máximo absoluto de documentos
+const BATCH_SIZE = 5; // Número de documentos a cargar en paralelo (para evitar saturar el navegador)
+const METADATA_PREVIEW_LENGTH = 1000; // Caracteres de preview para búsqueda de relevancia
+const TOP_RELEVANT_DOCS = 15; // Número de documentos más relevantes a cargar completamente
+const MAX_DOCS_FOR_AI_SELECTION = 200; // Máximo de documentos a enviar a xAI para selección (para evitar exceder límites de tokens)
 
 // Respuestas predefinidas del chatbot
 const responses = {
@@ -98,20 +105,61 @@ function countOccurrences(text, pattern) {
 // Función para obtener respuesta del chatbot (MEJORADA CON IA)
 async function getBotResponse(userMessage) {
     const message = userMessage.toLowerCase().trim();
-    
+
     console.log('🔍 getBotResponse llamada:', {
         message: userMessage,
         xaiConfigured: !!xaiApiKey,
+        metadataAvailable: documentMetadata.length,
         documentsLoaded: driveDocuments.length
     });
-    
-    // PRIORIDAD 1: Si hay xAI configurado, usar IA SOLO con documentos cargados
+
+    // PRIORIDAD 1: Si hay xAI configurado, usar IA con búsqueda inteligente
     if (xaiApiKey) {
         console.log('✅ xAI está configurado, intentando usar IA...');
         try {
-            // Si hay documentos cargados, analizar con contexto
-            if (driveDocuments.length > 0) {
-                console.log('📄 Usando xAI con documentos...');
+            // Si hay metadata disponible, buscar documentos relevantes
+            if (documentMetadata.length > 0) {
+                console.log(`📚 Buscando en ${documentMetadata.length} documentos indexados...`);
+
+                // Buscar documentos relevantes usando xAI (semántico) o keywords (fallback)
+                const relevantDocs = await findRelevantDocumentsWithAI(userMessage, documentMetadata);
+
+                if (relevantDocs.length > 0) {
+                    // Cargar contenido completo de los documentos relevantes
+                    const docIds = relevantDocs.map(d => d.id);
+                    await loadFullContentForDocs(docIds);
+
+                    console.log(`📄 Usando xAI con ${driveDocuments.length} documentos relevantes...`);
+                    const aiResponse = await analyzeDocumentsWithAI(userMessage);
+                    if (aiResponse) {
+                        console.log('✅ Respuesta de xAI con documentos recibida');
+
+                        // Agregar nota sobre qué documentos se consultaron y cómo fueron seleccionados
+                        const docNames = relevantDocs.slice(0, 3).map(d => d.name).join(', ');
+                        const moreCount = relevantDocs.length - 3;
+
+                        let selectionMethodLabel = '';
+                        if (relevantDocs[0].selectionMethod === 'xAI') {
+                            selectionMethodLabel = '🤖 selección semántica con IA';
+                        } else if (relevantDocs[0].selectionMethod === 'xAI+keywords') {
+                            selectionMethodLabel = '🤖🔍 IA híbrida (pre-filtrado + semántica)';
+                        } else {
+                            selectionMethodLabel = '🔍 búsqueda por palabras clave';
+                        }
+
+                        const docsNote = moreCount > 0
+                            ? `\n\n📚 *Documentos consultados (${selectionMethodLabel}): ${docNames} y ${moreCount} más*`
+                            : `\n\n📚 *Documentos consultados (${selectionMethodLabel}): ${docNames}*`;
+
+                        return aiResponse + docsNote;
+                    }
+                } else {
+                    return `🔍 No encontré documentos relevantes para tu pregunta en los ${documentMetadata.length} documentos indexados. Intenta reformular tu pregunta o verifica que los documentos correctos estén cargados.`;
+                }
+            }
+            // Si no hay metadata pero hay documentos completos cargados, usar esos
+            else if (driveDocuments.length > 0) {
+                console.log('📄 Usando xAI con documentos cargados manualmente...');
                 const aiResponse = await analyzeDocumentsWithAI(userMessage);
                 if (aiResponse) {
                     console.log('✅ Respuesta de xAI con documentos recibida');
@@ -511,6 +559,286 @@ async function readFileContent(fileId, mimeType) {
     throw new Error('No se pudo leer el contenido del archivo');
 }
 
+// Función para leer solo metadata (título + preview) de un archivo
+async function readFileMetadata(fileId, fileName, mimeType) {
+    try {
+        const content = await readFileContent(fileId, mimeType);
+        // Extraer solo los primeros N caracteres como preview
+        const preview = content.substring(0, METADATA_PREVIEW_LENGTH);
+
+        return {
+            id: fileId,
+            name: fileName,
+            mimeType: mimeType,
+            preview: preview,
+            fullContentLoaded: false
+        };
+    } catch (error) {
+        console.error(`Error leyendo metadata de ${fileName}:`, error);
+        return {
+            id: fileId,
+            name: fileName,
+            mimeType: mimeType,
+            preview: '',
+            fullContentLoaded: false,
+            error: error.message
+        };
+    }
+}
+
+// Función para buscar documentos relevantes usando xAI (búsqueda semántica inteligente)
+async function findRelevantDocumentsWithAI(query, metadata) {
+    if (!metadata || metadata.length === 0) {
+        return [];
+    }
+
+    if (!xaiApiKey) {
+        console.log('⚠️ xAI no disponible, usando búsqueda por keywords');
+        return findRelevantDocumentsByKeywords(query, metadata);
+    }
+
+    try {
+        console.log(`🤖 Usando xAI para seleccionar documentos relevantes de ${metadata.length} disponibles...`);
+
+        // Si hay demasiados documentos, primero pre-filtrar con keywords
+        let candidateDocs = metadata;
+        if (metadata.length > MAX_DOCS_FOR_AI_SELECTION) {
+            console.log(`📊 Demasiados documentos (${metadata.length}), pre-filtrando con keywords a los mejores ${MAX_DOCS_FOR_AI_SELECTION}...`);
+            const keywordFiltered = findRelevantDocumentsByKeywords(query, metadata);
+            candidateDocs = keywordFiltered.length > 0 ? keywordFiltered.slice(0, MAX_DOCS_FOR_AI_SELECTION) : metadata.slice(0, MAX_DOCS_FOR_AI_SELECTION);
+            console.log(`✓ Pre-filtrado completo: ${candidateDocs.length} candidatos para xAI`);
+        }
+
+        // Construir lista de documentos para xAI
+        let docList = '';
+        candidateDocs.forEach((doc, idx) => {
+            const preview = doc.preview.substring(0, 200).replace(/\n/g, ' '); // Limitar preview
+            docList += `${idx}. "${doc.name}" - ${preview}...\n`;
+        });
+
+        // Prompt para xAI
+        const prompt = `Analiza esta pregunta del usuario y selecciona los documentos MÁS RELEVANTES de la lista.
+
+PREGUNTA DEL USUARIO: "${query}"
+
+DOCUMENTOS DISPONIBLES:
+${docList}
+
+INSTRUCCIONES:
+- Selecciona SOLO los documentos que realmente puedan responder la pregunta
+- Considera sinónimos y contexto semántico (ej: "ventas" = "ingresos" = "revenue")
+- Máximo ${TOP_RELEVANT_DOCS} documentos
+- Responde SOLO con los números separados por comas (ej: 0,5,12,45)
+- Si ningún documento es relevante, responde "NINGUNO"
+
+NÚMEROS DE DOCUMENTOS RELEVANTES:`;
+
+        const messages = [
+            {
+                role: 'user',
+                content: prompt
+            }
+        ];
+
+        const response = await callXAI(messages, 0.3); // Temperatura baja para precisión
+
+        console.log(`🤖 xAI respuesta: "${response}"`);
+
+        // Parsear respuesta
+        if (response.toUpperCase().includes('NINGUNO')) {
+            console.log('❌ xAI no encontró documentos relevantes');
+            return [];
+        }
+
+        // Extraer números de la respuesta
+        const numbers = response.match(/\d+/g);
+        if (!numbers || numbers.length === 0) {
+            console.log('⚠️ No se pudieron parsear los números, usando keywords como fallback');
+            return findRelevantDocumentsByKeywords(query, metadata);
+        }
+
+        const selectedIndices = numbers.map(n => parseInt(n)).filter(n => n < candidateDocs.length);
+        const selectedDocs = selectedIndices.map(idx => ({
+            ...candidateDocs[idx],
+            relevanceScore: 100 - selectedIndices.indexOf(idx) * 5, // Score basado en orden
+            selectionMethod: metadata.length > MAX_DOCS_FOR_AI_SELECTION ? 'xAI+keywords' : 'xAI'
+        }));
+
+        console.log(`✅ xAI seleccionó ${selectedDocs.length} documentos:`);
+        selectedDocs.forEach((doc, i) => {
+            console.log(`  ${i + 1}. ${doc.name}`);
+        });
+
+        return selectedDocs.slice(0, TOP_RELEVANT_DOCS);
+
+    } catch (error) {
+        console.error('❌ Error con xAI para selección de documentos:', error);
+        console.log('⚠️ Usando búsqueda por keywords como fallback');
+        return findRelevantDocumentsByKeywords(query, metadata);
+    }
+}
+
+// Función para buscar documentos relevantes basado en keywords (fallback)
+function findRelevantDocumentsByKeywords(query, metadata) {
+    if (!metadata || metadata.length === 0) {
+        return [];
+    }
+
+    const queryLower = query.toLowerCase();
+    const keywords = queryLower.split(/\s+/).filter(word => word.length > 2); // Palabras de más de 2 caracteres
+
+    // Calcular score de relevancia para cada documento
+    const scored = metadata.map(doc => {
+        let score = 0;
+        const nameLower = doc.name.toLowerCase();
+        const previewLower = doc.preview.toLowerCase();
+
+        keywords.forEach(keyword => {
+            // Coincidencias en el nombre valen más
+            const nameMatches = (nameLower.match(new RegExp(keyword, 'g')) || []).length;
+            score += nameMatches * 5;
+
+            // Coincidencias en el preview
+            const previewMatches = (previewLower.match(new RegExp(keyword, 'g')) || []).length;
+            score += previewMatches;
+        });
+
+        return {
+            ...doc,
+            relevanceScore: score,
+            selectionMethod: 'keywords'
+        };
+    });
+
+    // Filtrar los que tengan al menos score > 0 y ordenar por relevancia
+    const relevant = scored
+        .filter(doc => doc.relevanceScore > 0)
+        .sort((a, b) => b.relevanceScore - a.relevanceScore);
+
+    console.log(`🔍 Búsqueda por keywords: "${query}" → ${relevant.length} documentos relevantes encontrados`);
+    relevant.slice(0, 5).forEach((doc, i) => {
+        console.log(`  ${i + 1}. ${doc.name} (score: ${doc.relevanceScore})`);
+    });
+
+    return relevant.slice(0, TOP_RELEVANT_DOCS);
+}
+
+// Función para cargar contenido completo de documentos específicos
+async function loadFullContentForDocs(docIds) {
+    console.log(`📥 Cargando contenido completo de ${docIds.length} documentos...`);
+
+    const loadPromises = docIds.map(async (docId) => {
+        // Buscar metadata
+        const meta = documentMetadata.find(m => m.id === docId);
+        if (!meta) return null;
+
+        // Si ya está cargado completamente, retornar
+        const existing = driveDocuments.find(d => d.id === docId);
+        if (existing) {
+            console.log(`✓ ${meta.name} - ya cargado`);
+            return existing;
+        }
+
+        try {
+            console.log(`⏳ Cargando ${meta.name}...`);
+            const content = await readFileContent(meta.id, meta.mimeType);
+
+            const doc = {
+                id: meta.id,
+                name: meta.name,
+                content: content,
+                mimeType: meta.mimeType
+            };
+
+            // Agregar a la lista de documentos completos
+            driveDocuments.push(doc);
+            console.log(`✓ ${meta.name} - cargado (${content.length} caracteres)`);
+
+            return doc;
+        } catch (error) {
+            console.error(`✗ Error cargando ${meta.name}:`, error);
+            return null;
+        }
+    });
+
+    const results = await Promise.all(loadPromises);
+    return results.filter(r => r !== null);
+}
+
+// Función para cargar solo metadata de una lista de archivos (indexación rápida)
+async function loadDocumentsMetadata(files) {
+    if (files.length === 0) {
+        throw new Error('No se encontraron documentos');
+    }
+
+    console.log(`📇 Indexando ${files.length} documentos (solo metadata)...`);
+
+    cancelDocumentLoad = false;
+    documentMetadata = [];
+    const errors = [];
+
+    // Mostrar progreso inicial
+    driveStatus.innerHTML = `<div class="info">📇 Indexando documentos: 0/${files.length} <button onclick="cancelDocumentLoad=true" style="margin-left:10px;">Cancelar</button></div>`;
+    driveStatus.className = 'drive-status info';
+
+    // Cargar metadata en lotes
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+        if (cancelDocumentLoad) {
+            driveStatus.innerHTML = `<div class="warning">⚠️ Indexación cancelada. ${documentMetadata.length} documentos indexados.</div>`;
+            driveStatus.className = 'drive-status warning';
+            break;
+        }
+
+        const batch = files.slice(i, Math.min(i + BATCH_SIZE, files.length));
+
+        // Actualizar progreso
+        driveStatus.innerHTML = `<div class="info">📇 Indexando documentos: ${i}/${files.length} <button onclick="cancelDocumentLoad=true" style="margin-left:10px;">Cancelar</button></div>`;
+
+        // Cargar batch en paralelo
+        const batchPromises = batch.map(file =>
+            readFileMetadata(file.id, file.name, file.mimeType)
+        );
+
+        const batchResults = await Promise.all(batchPromises);
+
+        // Procesar resultados del batch
+        batchResults.forEach(result => {
+            if (result && !result.error) {
+                documentMetadata.push(result);
+            } else if (result && result.error) {
+                errors.push({
+                    name: result.name,
+                    error: result.error
+                });
+            }
+        });
+    }
+
+    const successCount = documentMetadata.length;
+
+    if (documentMetadata.length > 0) {
+        let statusMessage = `<div class="success">✓ ${successCount} documento(s) indexado(s). Ahora puedes hacer preguntas y el sistema buscará automáticamente en los documentos relevantes.</div>`;
+
+        // Mostrar errores si hubo alguno
+        if (errors.length > 0) {
+            statusMessage += '<div class="warning" style="margin-top: 10px;">';
+            statusMessage += `<strong>⚠ ${errors.length} documento(s) fallaron:</strong><ul style="margin: 5px 0; padding-left: 20px;">`;
+            errors.forEach(err => {
+                statusMessage += `<li><strong>${err.name}</strong>: ${err.error}</li>`;
+            });
+            statusMessage += '</ul></div>';
+        }
+
+        driveStatus.innerHTML = statusMessage;
+        driveStatus.className = 'drive-status success';
+        displayDocumentsList();
+
+        console.log(`✅ Indexación completa: ${documentMetadata.length} documentos disponibles para búsqueda`);
+    } else {
+        throw new Error('No se pudo indexar ningún documento.');
+    }
+}
+
 // Variables de configuración de API
 let googleClientId = null;
 let googleApiKey = null;
@@ -900,16 +1228,32 @@ async function showDriveFilePicker() {
         const files = await listUserDriveFiles();
         
         console.log('Archivos recibidos en picker:', files);
-        
+
         if (files.length === 0) {
             apiStatus.innerHTML = '<div class="info">ℹ️ No se encontraron documentos de Google Docs, PDFs o archivos de texto en tu Drive. Si tienes documentos, verifica que la API tenga los permisos correctos.</div>';
             return;
         }
-        
+
+        // Advertencia si hay demasiados archivos
+        let warningHTML = '';
+        if (files.length > MAX_DOCUMENTS_HARD_LIMIT) {
+            warningHTML = `<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 10px; margin: 10px 0; border-radius: 5px;">
+                <strong>⚠️ ADVERTENCIA:</strong> Encontramos ${files.length} documentos.
+                Por favor, selecciona máximo ${MAX_DOCUMENTS_RECOMMENDED} documentos (límite: ${MAX_DOCUMENTS_HARD_LIMIT}).
+                Demasiados documentos pueden congelar tu navegador.
+            </div>`;
+        } else if (files.length > MAX_DOCUMENTS_RECOMMENDED) {
+            warningHTML = `<div style="background: #d1ecf1; border: 1px solid #0c5460; padding: 10px; margin: 10px 0; border-radius: 5px;">
+                <strong>ℹ️ AVISO:</strong> Encontramos ${files.length} documentos.
+                Recomendamos seleccionar máximo ${MAX_DOCUMENTS_RECOMMENDED} para mejor rendimiento.
+            </div>`;
+        }
+
         // Crear interfaz de selección de archivos
         let pickerHTML = `
             <div class="file-picker">
                 <h4>📂 Selecciona los documentos a cargar:</h4>
+                ${warningHTML}
                 <div class="file-list">
         `;
         
@@ -950,9 +1294,13 @@ async function showDriveFilePicker() {
         
         pickerHTML += `
                 </div>
+                <div style="background: #e3f2fd; border: 1px solid #2196F3; padding: 10px; margin: 10px 0; border-radius: 5px;">
+                    <strong>💡 Recomendado:</strong> Usa "Indexar Todos" para búsqueda inteligente en todos tus documentos
+                </div>
                 <div class="file-picker-actions">
-                    <button id="loadSelectedFiles" class="connect-button">Cargar Seleccionados</button>
-                    <button id="loadAllFiles" class="connect-button secondary">Cargar Todos</button>
+                    <button id="indexAllFiles" class="connect-button" style="background: #2196F3;">📇 Indexar Todos (Recomendado)</button>
+                    <button id="selectFirst50" class="connect-button secondary">✓ Seleccionar Primeros ${Math.min(MAX_DOCUMENTS_RECOMMENDED, files.length)}</button>
+                    <button id="loadSelectedFiles" class="connect-button secondary">Cargar Seleccionados</button>
                     <button id="cancelFilePicker" class="close-button">Cancelar</button>
                 </div>
             </div>
@@ -962,26 +1310,38 @@ async function showDriveFilePicker() {
         apiStatus.className = 'drive-status';
         
         // Event listeners para los botones del picker
+        document.getElementById('indexAllFiles').addEventListener('click', async () => {
+            await loadDocumentsMetadata(files);
+        });
+
+        document.getElementById('selectFirst50').addEventListener('click', () => {
+            // Desmarcar todos primero
+            const allCheckboxes = document.querySelectorAll('.file-item input[type="checkbox"]');
+            allCheckboxes.forEach(cb => cb.checked = false);
+
+            // Marcar los primeros N
+            const limit = Math.min(MAX_DOCUMENTS_RECOMMENDED, allCheckboxes.length);
+            for (let i = 0; i < limit; i++) {
+                allCheckboxes[i].checked = true;
+            }
+        });
+
         document.getElementById('loadSelectedFiles').addEventListener('click', async () => {
             const checkboxes = document.querySelectorAll('.file-item input[type="checkbox"]:checked');
             if (checkboxes.length === 0) {
                 alert('Por favor, selecciona al menos un archivo');
                 return;
             }
-            
+
             const selectedFiles = Array.from(checkboxes).map(cb => ({
                 id: cb.value,
                 name: cb.getAttribute('data-name'),
                 mimeType: cb.getAttribute('data-mimetype')
             }));
-            
+
             await loadDocumentsFromFiles(selectedFiles);
         });
-        
-        document.getElementById('loadAllFiles').addEventListener('click', async () => {
-            await loadDocumentsFromFiles(files);
-        });
-        
+
         document.getElementById('cancelFilePicker').addEventListener('click', () => {
             apiStatus.innerHTML = '<div class="info">Operación cancelada</div>';
             apiStatus.className = 'drive-status info';
@@ -1093,13 +1453,21 @@ function updateAuthUI() {
 
 // Función para mostrar lista de documentos cargados
 function displayDocumentsList() {
-    documentsList.innerHTML = '<h4>Documentos cargados:</h4>';
-    driveDocuments.forEach(doc => {
-        const docItem = document.createElement('div');
-        docItem.className = 'document-item';
-        docItem.textContent = `📄 ${doc.name} (${Math.round(doc.content.length / 1000)}KB)`;
-        documentsList.appendChild(docItem);
-    });
+    let html = '';
+
+    if (documentMetadata.length > 0) {
+        html += `<h4>📇 Documentos indexados: ${documentMetadata.length}</h4>`;
+        html += '<p style="font-size: 0.9em; color: #666;">Los documentos se cargarán automáticamente cuando hagas preguntas relevantes.</p>';
+    }
+
+    if (driveDocuments.length > 0) {
+        html += `<h4 style="margin-top: 15px;">📄 Documentos cargados completamente: ${driveDocuments.length}</h4>`;
+        driveDocuments.forEach(doc => {
+            html += `<div class="document-item">📄 ${doc.name} (${Math.round(doc.content.length / 1000)}KB)</div>`;
+        });
+    }
+
+    documentsList.innerHTML = html;
 }
 
 // Función para conectar Google Drive usando URL
@@ -1150,57 +1518,101 @@ async function connectWithIds() {
     }
 }
 
-// Función para cargar documentos desde lista de archivos
+// Variable para cancelar carga de documentos
+let cancelDocumentLoad = false;
+
+// Función para cargar documentos desde lista de archivos (con batching y límites)
 async function loadDocumentsFromFiles(files) {
     if (files.length === 0) {
         throw new Error('No se encontraron documentos');
     }
-    
-    driveStatus.innerHTML = '<div class="info">Cargando documentos...</div>';
-    driveStatus.className = 'drive-status info';
-    
-    // Leer contenido de cada archivo en paralelo para mejor rendimiento
-    driveDocuments = [];
-    const errors = []; // Rastrear documentos que fallaron
 
-    // Cargar todos los documentos en paralelo
-    const loadPromises = files.map(file =>
-        readFileContent(file.id, file.mimeType)
-            .then(content => ({
-                success: true,
-                id: file.id,
-                name: file.name,
-                content: content,
-                mimeType: file.mimeType
-            }))
-            .catch(error => {
-                console.error(`Error leyendo ${file.name}:`, error);
-                return {
-                    success: false,
-                    name: file.name,
-                    error: error.message || 'Error desconocido'
-                };
-            })
-    );
+    // Verificar límites
+    if (files.length > MAX_DOCUMENTS_HARD_LIMIT) {
+        const proceed = confirm(
+            `⚠️ ADVERTENCIA: Intentas cargar ${files.length} documentos.\n\n` +
+            `El límite máximo es ${MAX_DOCUMENTS_HARD_LIMIT} documentos para evitar que el navegador se congele.\n\n` +
+            `¿Quieres cargar solo los primeros ${MAX_DOCUMENTS_HARD_LIMIT}?`
+        );
 
-    const results = await Promise.all(loadPromises);
-
-    // Procesar resultados
-    results.forEach(result => {
-        if (result.success) {
-            driveDocuments.push({
-                id: result.id,
-                name: result.name,
-                content: result.content,
-                mimeType: result.mimeType
-            });
-        } else {
-            errors.push({
-                name: result.name,
-                error: result.error
-            });
+        if (!proceed) {
+            throw new Error('Carga cancelada por el usuario');
         }
-    });
+
+        files = files.slice(0, MAX_DOCUMENTS_HARD_LIMIT);
+    } else if (files.length > MAX_DOCUMENTS_RECOMMENDED) {
+        const proceed = confirm(
+            `⚠️ Vas a cargar ${files.length} documentos.\n\n` +
+            `Recomendamos cargar máximo ${MAX_DOCUMENTS_RECOMMENDED} documentos para mejor rendimiento.\n\n` +
+            `¿Continuar de todas formas? (Puede tardar varios minutos)`
+        );
+
+        if (!proceed) {
+            throw new Error('Carga cancelada por el usuario');
+        }
+    }
+
+    cancelDocumentLoad = false;
+    driveDocuments = [];
+    const errors = [];
+
+    // Mostrar progreso inicial
+    driveStatus.innerHTML = `<div class="info">📂 Cargando documentos: 0/${files.length} <button onclick="cancelDocumentLoad=true" style="margin-left:10px;">Cancelar</button></div>`;
+    driveStatus.className = 'drive-status info';
+
+    // Cargar documentos en lotes para evitar saturar el navegador
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+        // Verificar si se canceló
+        if (cancelDocumentLoad) {
+            driveStatus.innerHTML = `<div class="warning">⚠️ Carga cancelada por el usuario. ${driveDocuments.length} documentos cargados.</div>`;
+            driveStatus.className = 'drive-status warning';
+            break;
+        }
+
+        const batch = files.slice(i, Math.min(i + BATCH_SIZE, files.length));
+
+        // Actualizar progreso
+        driveStatus.innerHTML = `<div class="info">📂 Cargando documentos: ${i}/${files.length} <button onclick="cancelDocumentLoad=true" style="margin-left:10px;">Cancelar</button></div>`;
+
+        // Cargar batch en paralelo
+        const batchPromises = batch.map(file =>
+            readFileContent(file.id, file.mimeType)
+                .then(content => ({
+                    success: true,
+                    id: file.id,
+                    name: file.name,
+                    content: content,
+                    mimeType: file.mimeType
+                }))
+                .catch(error => {
+                    console.error(`Error leyendo ${file.name}:`, error);
+                    return {
+                        success: false,
+                        name: file.name,
+                        error: error.message || 'Error desconocido'
+                    };
+                })
+        );
+
+        const batchResults = await Promise.all(batchPromises);
+
+        // Procesar resultados del batch
+        batchResults.forEach(result => {
+            if (result.success) {
+                driveDocuments.push({
+                    id: result.id,
+                    name: result.name,
+                    content: result.content,
+                    mimeType: result.mimeType
+                });
+            } else {
+                errors.push({
+                    name: result.name,
+                    error: result.error
+                });
+            }
+        });
+    }
 
     const successCount = driveDocuments.length;
     
