@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatbot Simple</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Solo cargamos Google Identity Services, NO gapi (causa errores con OAuth 2.0 nuevo) -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🤖 Chatbot Simple</h1>
+            <button id="settingsButton" class="settings-button" title="Configuración">⚙️</button>
+        </div>
+        <!-- Panel de configuración de Google Drive -->
+        <div class="settings-panel" id="settingsPanel" style="display: none;">
+            <div class="settings-content">
+                <h3>📁 Vincular Google Drive</h3>
+                <p>Conecta tu Google Drive para que el chatbot pueda leer tus documentos</p>
+                <div class="drive-tabs">
+                    <button class="tab-button active" data-tab="url">URL de Carpeta</button>
+                    <button class="tab-button" data-tab="ids">IDs de Documentos</button>
+                    <button class="tab-button" data-tab="api">Configuración API</button>
+                </div>
+                
+                <div class="tab-content active" id="tab-url">
+                    <div class="drive-config">
+                        <input 
+                            type="text" 
+                            id="driveFolderUrl" 
+                            class="drive-input" 
+                            placeholder="Pega la URL de la carpeta de Google Drive aquí..."
+                        >
+                        <button id="connectDriveButton" class="connect-button">Conectar</button>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="tab-ids">
+                    <div class="drive-config">
+                        <textarea 
+                            id="driveDocumentIds" 
+                            class="drive-textarea" 
+                            placeholder="Ingresa los IDs de los documentos de Google Drive, uno por línea o separados por comas. Ejemplo: 1ABC123... o 1ABC123..., 1XYZ789..."
+                            rows="5"
+                        ></textarea>
+                        <button id="connectIdsButton" class="connect-button">Cargar Documentos</button>
+                    </div>
+                    <div class="drive-help">
+                        <p><strong>¿Cómo obtener el ID de un documento?</strong></p>
+                        <p>1. Abre tu documento en Google Drive</p>
+                        <p>2. Mira la URL: <code>https://docs.google.com/document/d/ID_AQUI/edit</code></p>
+                        <p>3. Copia el ID (la parte larga entre /d/ y /edit)</p>
+                        <p>4. Comparte el documento como "Cualquiera con el enlace"</p>
+                    </div>
+                </div>
+                
+                <div class="tab-content" id="tab-api">
+                    <div class="api-config">
+                        <h4>Configuración de Google Drive API</h4>
+                        <p class="api-description">Para acceder a documentos privados, configura las credenciales de Google Drive API.</p>
+                        <a href="GUIA_GOOGLE_DRIVE_API.md" target="_blank" class="guide-link">📖 Ver guía completa</a>
+                        
+                        <div class="api-field">
+                            <label for="clientId">Client ID (OAuth 2.0):</label>
+                            <input 
+                                type="text" 
+                                id="clientId" 
+                                class="drive-input" 
+                                placeholder="xxxxx.apps.googleusercontent.com"
+                            >
+                            <small>Obtén tu Client ID en Google Cloud Console</small>
+                        </div>
+                        
+                        <div class="api-field">
+                            <label for="apiKey">API Key (Opcional):</label>
+                            <input 
+                                type="text" 
+                                id="apiKey" 
+                                class="drive-input" 
+                                placeholder="AIza..."
+                            >
+                            <small>Opcional: para algunas funcionalidades adicionales</small>
+                        </div>
+                        
+                        <div class="api-actions">
+                            <button id="saveApiConfigButton" class="connect-button">Guardar Configuración</button>
+                            <button id="signInButton" class="signin-button" style="display: none;">Iniciar Sesión con Google</button>
+                            <button id="signOutButton" class="signout-button" style="display: none;">Cerrar Sesión</button>
+                        </div>
+                        
+                        <div id="apiStatus" class="drive-status"></div>
+                    </div>
+                </div>
+                
+                <div class="drive-instructions">
+                    <p><strong>Método recomendado (sin autenticación):</strong></p>
+                    <ol>
+                        <li>Comparte tus documentos como "Cualquiera con el enlace" en Google Drive</li>
+                        <li>Usa la pestaña "IDs de Documentos" para ingresar los IDs directamente</li>
+                        <li>O pega la URL de la carpeta (si está compartida públicamente)</li>
+                    </ol>
+                </div>
+                <div id="driveStatus" class="drive-status"></div>
+                <div id="documentsList" class="documents-list"></div>
+                <button id="closeSettingsButton" class="close-button">Cerrar</button>
+            </div>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="message bot-message">
+                <div class="message-content">
+                    ¡Hola! Soy un chatbot simple. ¿En qué puedo ayudarte?
+                </div>
+            </div>
+        </div>
+        <div class="chat-input-container">
+            <input 
+                type="text" 
+                id="userInput" 
+                class="chat-input" 
+                placeholder="Escribe tu mensaje aquí..."
+                autocomplete="off"
+            >
+            <button id="sendButton" class="send-button">Enviar</button>
+        </div>
+    </div>
+    <!-- NO cargamos api.js - solo usamos Google Identity Services -->
+    <script src="script.js"></script>
+</body>
+</html>
+

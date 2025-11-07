@@ -1,0 +1,26 @@
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos de configuración local (no subir credenciales)
+config.local.js
+.env
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Archivos temporales
+*.tmp
+*.temp
+~*
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
