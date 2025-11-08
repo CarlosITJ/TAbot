@@ -79,6 +79,23 @@ El chatbot puede leer los siguientes tipos de archivos con **análisis avanzado 
 
 **Recomendación:** Para mejor compatibilidad, convierte tus archivos de Office antiguos (.doc, .xls, .ppt) a formatos modernos (.docx, .xlsx, .pptx) antes de subirlos.
 
+### ⚠️ Importante: Google Sheets con Múltiples Hojas
+
+Para aprovechar el **soporte multi-hoja completo** de Google Sheets, necesitas:
+
+1. **Habilitar Google Sheets API** en Google Cloud Console:
+   - Ve a [APIs & Services → Library](https://console.cloud.google.com/apis/library)
+   - Busca "Google Sheets API"
+   - Haz clic en "Enable"
+   - **IMPORTANTE**: Asegúrate de que el scope `https://www.googleapis.com/auth/spreadsheets.readonly` esté incluido en tu configuración OAuth
+
+2. **Sin Google Sheets API habilitado:**
+   - Solo se exportará la primera hoja visible del documento
+   - **Solución alternativa**: Reorganiza tus hojas para que la más reciente/importante esté primera
+   - O crea archivos separados para cada hoja importante
+
+**Nota**: La aplicación ahora solicita automáticamente el scope de Google Sheets API cuando configuras OAuth 2.0.
+
 ## 🔍 Arquitectura de Análisis Avanzado
 
 ### Diagrama de Procesamiento Inteligente

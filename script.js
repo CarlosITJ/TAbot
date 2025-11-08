@@ -1859,9 +1859,6 @@ async function readFileContent(fileId, mimeType) {
                     saveDocumentToCache(fileId, cacheData);
 
                     return content;
-                } else {
-                    console.error('Error en exportación:', response.status);
-                }
             } catch (error) {
                 console.error('Error con API oficial:', error);
                 throw error;
@@ -3490,7 +3487,7 @@ async function signIn() {
         // Usar Google Identity Services (GSI) - método moderno
         const tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: googleClientId,
-            scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly',
+            scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/spreadsheets.readonly',
             callback: async (response) => {
                 if (response.error) {
                     console.error('Error de OAuth:', response);
