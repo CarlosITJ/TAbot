@@ -467,6 +467,73 @@ async function parseDOCXContent(arrayBuffer) {
 }
 
 // ========================================
+// GOOGLE SHEETS MULTI-SHEET SUPPORT
+// ========================================
+
+// Función para ordenar hojas de Google Sheets por relevancia (más reciente primero)
+function smartSortSheets(sheets) {
+    return sheets.slice().sort((a, b) => {
+        const titleA = a.properties.title.toLowerCase();
+        const titleB = b.properties.title.toLowerCase();
+        
+        // Extraer años de los títulos
+        const yearRegex = /20\d{2}/g;
+        const yearsA = titleA.match(yearRegex) || [];
+        const yearsB = titleB.match(yearRegex) || [];
+        
+        // Si ambos tienen años, priorizar el más reciente
+        if (yearsA.length > 0 && yearsB.length > 0) {
+            const maxYearA = Math.max(...yearsA.map(y => parseInt(y)));
+            const maxYearB = Math.max(...yearsB.map(y => parseInt(y)));
+            
+            if (maxYearA !== maxYearB) {
+                return maxYearB - maxYearA; // Más reciente primero
+            }
+        }
+        
+        // Si solo uno tiene año, priorizarlo
+        if (yearsA.length > 0 && yearsB.length === 0) return -1;
+        if (yearsA.length === 0 && yearsB.length > 0) return 1;
+        
+        // Detectar palabras clave de temporalidad
+        const timeKeywords = {
+            'current': 10,
+            'actual': 10,
+            'latest': 10,
+            'nuevo': 9,
+            'new': 9,
+            'recent': 8,
+            'reciente': 8,
+            'q4': 7,
+            'q3': 6,
+            'q2': 5,
+            'q1': 4,
+            'archive': -10,
+            'archivo': -10,
+            'old': -10,
+            'viejo': -10,
+            'backup': -10,
+            'respaldo': -10
+        };
+        
+        let scoreA = 0;
+        let scoreB = 0;
+        
+        for (const [keyword, score] of Object.entries(timeKeywords)) {
+            if (titleA.includes(keyword)) scoreA += score;
+            if (titleB.includes(keyword)) scoreB += score;
+        }
+        
+        if (scoreA !== scoreB) {
+            return scoreB - scoreA; // Mayor score primero
+        }
+        
+        // Fallback: usar el índice original (primera hoja primero)
+        return a.properties.index - b.properties.index;
+    });
+}
+
+// ========================================
 // ADVANCED CSV PARSING FOR EXCEL FILES
 // ========================================
 
@@ -1579,9 +1646,9 @@ async function readFileContent(fileId, mimeType) {
                 
                 // Para Google Sheets, necesitamos manejar múltiples hojas
                 if (mimeType.includes('spreadsheet')) {
-                    console.log('📊 Procesando Google Sheets con soporte multi-hoja...');
+                    console.log('📊 Procesando Google Sheets con soporte multi-hoja COMPLETO...');
                     
-                    // Primero, obtener metadata del archivo para ver las hojas disponibles
+                    // Obtener metadata del archivo
                     const metadataUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`;
                     const metadataResponse = await fetch(metadataUrl, {
                         headers: {
@@ -1593,21 +1660,86 @@ async function readFileContent(fileId, mimeType) {
                     const fileName = metadata.name || 'Google Sheet';
                     console.log(`📋 Nombre del archivo: ${fileName}`);
                     
-                    // Exportar como Excel (XLSX) primero, luego convertir
-                    // Esto nos da acceso a todas las hojas
-                    const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
-                    console.log('📥 Descargando Google Sheets como Excel para procesar todas las hojas...');
+                    // Usar Google Sheets API para obtener todas las hojas
+                    const sheetsApiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?fields=sheets(properties(sheetId,title,index))`;
+                    console.log('🔍 Obteniendo lista de hojas con Sheets API...');
                     
-                    const response = await fetch(exportUrl, {
+                    const sheetsResponse = await fetch(sheetsApiUrl, {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`
                         }
                     });
                     
-                    if (response.ok) {
-                        // Por ahora, usar CSV simple pero agregar nota sobre múltiples hojas
-                        // En el futuro podríamos usar una librería para parsear XLSX
-                        console.log('⚠️ Nota: Google Sheets puede contener múltiples hojas. Exportando como CSV (solo primera hoja visible)...');
+                    if (sheetsResponse.ok) {
+                        const sheetsData = await sheetsResponse.json();
+                        const sheets = sheetsData.sheets || [];
+                        
+                        console.log(`📑 Encontradas ${sheets.length} hoja(s) en el documento:`);
+                        sheets.forEach(sheet => {
+                            console.log(`   • "${sheet.properties.title}" (index: ${sheet.properties.index})`);
+                        });
+                        
+                        // Ordenar hojas por prioridad (más reciente primero)
+                        const sortedSheets = smartSortSheets(sheets);
+                        
+                        console.log('📊 Orden de prioridad de hojas (más reciente/relevante primero):');
+                        sortedSheets.forEach((sheet, i) => {
+                            console.log(`   ${i + 1}. "${sheet.properties.title}"`);
+                        });
+                        
+                        // Exportar todas las hojas relevantes (máximo 3 para evitar sobrecarga)
+                        const sheetsToExport = sortedSheets.slice(0, 3);
+                        const sheetContents = [];
+                        
+                        for (const sheet of sheetsToExport) {
+                            const sheetTitle = sheet.properties.title;
+                            console.log(`📥 Exportando hoja: "${sheetTitle}"...`);
+                            
+                            // Exportar hoja específica usando gid
+                            const gid = sheet.properties.sheetId;
+                            const sheetCsvUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv&gid=${gid}`;
+                            
+                            const sheetResponse = await fetch(sheetCsvUrl, {
+                                headers: {
+                                    'Authorization': `Bearer ${accessToken}`
+                                }
+                            });
+                            
+                            if (sheetResponse.ok) {
+                                const sheetContent = await sheetResponse.text();
+                                console.log(`✅ Hoja "${sheetTitle}" exportada: ${sheetContent.length} caracteres`);
+                                
+                                sheetContents.push({
+                                    title: sheetTitle,
+                                    content: sheetContent,
+                                    index: sheet.properties.index
+                                });
+                            } else {
+                                console.warn(`⚠️ No se pudo exportar hoja "${sheetTitle}": ${sheetResponse.status}`);
+                            }
+                        }
+                        
+                        // Combinar contenido de todas las hojas con separadores claros
+                        if (sheetContents.length > 0) {
+                            content = `=== GOOGLE SHEETS: ${fileName} ===\n`;
+                            content += `Total de hojas en el documento: ${sheets.length}\n`;
+                            content += `Hojas incluidas en este análisis: ${sheetContents.length}\n\n`;
+                            
+                            sheetContents.forEach((sheet, index) => {
+                                content += `\n${'='.repeat(80)}\n`;
+                                content += `HOJA ${index + 1}: "${sheet.title}"\n`;
+                                content += `${'='.repeat(80)}\n\n`;
+                                content += sheet.content;
+                                content += '\n\n';
+                            });
+                            
+                            console.log(`✅ Contenido combinado de ${sheetContents.length} hoja(s): ${content.length} caracteres totales`);
+                        } else {
+                            throw new Error('No se pudo exportar ninguna hoja del documento');
+                        }
+                    } else {
+                        // Fallback: Si Sheets API falla, usar exportación CSV simple
+                        console.warn('⚠️ Sheets API no disponible, usando exportación CSV simple (solo primera hoja)');
                         
                         const csvExportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
                         const csvResponse = await fetch(csvExportUrl, {
@@ -1618,18 +1750,11 @@ async function readFileContent(fileId, mimeType) {
                         
                         if (csvResponse.ok) {
                             content = await csvResponse.text();
-                            console.log(`Contenido CSV leído: ${content.length} caracteres`);
-                            
-                            // Agregar advertencia si el nombre del archivo sugiere múltiples hojas
-                            if (content.length < 1000 || !content.includes('\n')) {
-                                console.log('⚠️ ADVERTENCIA: El contenido CSV parece muy pequeño. El archivo puede tener múltiples hojas y solo se exportó la primera.');
-                                content = `NOTA: Este Google Sheets puede contener múltiples hojas/tabs. Solo se muestra la primera hoja visible.\nNombre del archivo: ${fileName}\n\n${content}`;
-                            }
+                            content = `NOTA: Solo se pudo exportar la primera hoja del documento.\nNombre del archivo: ${fileName}\n\n${content}`;
+                            console.log(`Contenido CSV leído (fallback): ${content.length} caracteres`);
                         } else {
                             throw new Error(`Error al exportar CSV: ${csvResponse.status}`);
                         }
-                    } else {
-                        throw new Error(`Error al acceder al archivo: ${response.status}`);
                     }
                 } else {
                     // Para Docs y Slides, usar exportación normal

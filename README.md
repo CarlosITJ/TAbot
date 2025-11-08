@@ -56,7 +56,11 @@ El chatbot puede leer los siguientes tipos de archivos con **análisis avanzado 
 
 - 🔬 **Google Workspace** (Análisis Inteligente)
   - 📄 **Google Docs** - Análisis de encabezados, secciones, tablas y listas
-  - 📊 **Google Sheets** - **Análisis avanzado de datos CSV** con detección automática de columnas (Status, Priority, etc.)
+  - 📊 **Google Sheets** - **Análisis avanzado multi-hoja** con:
+    - ✅ Detección automática de todas las hojas/tabs en el documento
+    - ✅ Ordenamiento inteligente (prioriza hojas más recientes: 2025 > 2024)
+    - ✅ Exportación de múltiples hojas relevantes (hasta 3)
+    - ✅ Detección automática de columnas (Status, Priority, Category, etc.)
   - 📽️ **Google Slides** - Estructura de presentaciones y contenido jerárquico
 - ✅ **Archivos de texto** (.txt) - Lectura directa con análisis básico
 - 🔬 **PDF** - Análisis multi-página con detección de tablas y secciones
@@ -119,7 +123,8 @@ Usuario Pregunta
 │  │ 📋 Tipos: Text, Number, Date, Email                     │    │
 │  │ 📋 Valores: open/closed, high/medium/low, etc.          │    │
 │  │ 📋 Confianza: 0-100% (precisión de detección)           │    │
-│  │ ✅ Google Sheets ahora incluyen análisis avanzado       │    │
+│  │ ✅ Google Sheets: Soporte multi-hoja completo           │    │
+│  │ 🎯 Priorización automática (2025 > 2024 > 2023...)      │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                                                                 │
 │  📄 GOOGLE DOCS / WORD                                          │
