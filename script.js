@@ -1607,11 +1607,26 @@ async function readFileContent(fileId, mimeType) {
                         advancedParse = parseCSVAdvanced(content);
 
                         // Crear contenido enriquecido con metadatos
-                        if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                        if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible' &&
+                            advancedParse.analysis !== 'Contenido no parece ser datos tabulares CSV') {
                             content = `=== ANÁLISIS AVANZADO DE LA HOJA DE CÁLCULO ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${content}`;
+                        } else if (advancedParse.analysis === 'Contenido no parece ser datos tabulares CSV') {
+                            console.log('⚠️ Google Sheets parece contener datos no tabulares, usando procesamiento básico');
+                            content = `=== HOJA DE CÁLCULO (FORMATO NO TABULAR) ===\nEste documento parece contener datos no estructurados o mixtos.\n\n=== CONTENIDO ===\n${content}`;
                         }
 
-                        console.log(`✅ Google Sheets procesado con análisis avanzado: ${advancedParse.columns?.length || 0} columnas detectadas`);
+                        console.log(`✅ Google Sheets procesado: ${advancedParse.columns?.length || 0} columnas detectadas, análisis: ${advancedParse.analysis}`);
+
+                        // Log detallado de columnas detectadas para datasets complejos
+                        if (advancedParse.columns && advancedParse.columns.length > 0) {
+                            console.log('📋 Columnas detectadas en Google Sheets:');
+                            advancedParse.columns.slice(0, 5).forEach(col => {
+                                console.log(`   • ${col.name} (${col.category}) - confianza: ${(col.confidence * 100).toFixed(0)}%`);
+                            });
+                            if (advancedParse.columns.length > 5) {
+                                console.log(`   ... y ${advancedParse.columns.length - 5} columnas más`);
+                            }
+                        }
                     }
                     else if (mimeType.includes('document')) {
                         // Google Docs - análisis avanzado de estructura
