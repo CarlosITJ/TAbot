@@ -689,6 +689,7 @@ function analyzeColumn(header, values) {
         priority: /^(priority|prioridad|urgencia|importancia)$/i,
         category: /^(category|categoría|tipo|type|clase|clasificación|class)$/i,
         phase: /^(phase|fase|etapa|stage)$/i,
+        role: /^(role|rol|position|posición|posicion|cargo|puesto|job.?title)$/i,
 
         // Identificadores
         id: /^(id|identificador|identifier|número|numero|number|code|código)$/i,
@@ -822,7 +823,24 @@ function generateAnalysisSummary(structure) {
     if (importantColumns.length > 0) {
         summary += 'Columnas clave: ';
         summary += importantColumns.map(col => `${col.name} (${col.category})`).join(', ');
-        summary += '.';
+        summary += '.\n';
+    }
+
+    // Incluir valores únicos de columnas categóricas importantes (role, status, priority, category)
+    const categoricalColumns = columns.filter(col => 
+        ['role', 'status', 'priority', 'category', 'phase'].includes(col.category) && 
+        col.uniqueCount > 0 && 
+        col.uniqueCount <= 50
+    );
+    
+    if (categoricalColumns.length > 0) {
+        summary += '\nValores únicos detectados:\n';
+        categoricalColumns.forEach(col => {
+            if (col.values && col.values.length > 0) {
+                const valuesList = col.values.slice(0, 20).join(', ');
+                summary += `- ${col.name}: ${valuesList}${col.values.length > 20 ? '...' : ''}\n`;
+            }
+        });
     }
 
     return summary;
