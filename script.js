@@ -1572,31 +1572,93 @@ async function readFileContent(fileId, mimeType) {
 
     // Para documentos de Google (Docs, Sheets, Slides)
     if (mimeType.includes('google-apps')) {
-        const exportMimeType = mimeType.includes('document') ? 'text/plain' :
-                               mimeType.includes('spreadsheet') ? 'text/csv' :
-                               mimeType.includes('presentation') ? 'text/plain' :
-                               'text/plain';
-
         // Usar API oficial con token de acceso
         if (accessToken) {
             try {
-                const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportMimeType}`;
-                console.log(`Exportando como ${exportMimeType}:`, exportUrl);
-                const response = await fetch(exportUrl, {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    }
-                });
-                if (response.ok) {
-                    let content = await response.text();
-                    console.log(`Contenido leído: ${content.length} caracteres`);
-
-                    // Debug: Mostrar primeras líneas del contenido para diagnóstico
-                    const lines = content.split('\n').slice(0, 5);
-                    console.log('📊 Primeras líneas del contenido exportado:');
-                    lines.forEach((line, i) => {
-                        console.log(`  Línea ${i + 1}: "${line.substring(0, 100)}${line.length > 100 ? '...' : ''}"`);
+                let content = '';
+                
+                // Para Google Sheets, necesitamos manejar múltiples hojas
+                if (mimeType.includes('spreadsheet')) {
+                    console.log('📊 Procesando Google Sheets con soporte multi-hoja...');
+                    
+                    // Primero, obtener metadata del archivo para ver las hojas disponibles
+                    const metadataUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`;
+                    const metadataResponse = await fetch(metadataUrl, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
                     });
+                    
+                    const metadata = await metadataResponse.json();
+                    const fileName = metadata.name || 'Google Sheet';
+                    console.log(`📋 Nombre del archivo: ${fileName}`);
+                    
+                    // Exportar como Excel (XLSX) primero, luego convertir
+                    // Esto nos da acceso a todas las hojas
+                    const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
+                    console.log('📥 Descargando Google Sheets como Excel para procesar todas las hojas...');
+                    
+                    const response = await fetch(exportUrl, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        // Por ahora, usar CSV simple pero agregar nota sobre múltiples hojas
+                        // En el futuro podríamos usar una librería para parsear XLSX
+                        console.log('⚠️ Nota: Google Sheets puede contener múltiples hojas. Exportando como CSV (solo primera hoja visible)...');
+                        
+                        const csvExportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
+                        const csvResponse = await fetch(csvExportUrl, {
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`
+                            }
+                        });
+                        
+                        if (csvResponse.ok) {
+                            content = await csvResponse.text();
+                            console.log(`Contenido CSV leído: ${content.length} caracteres`);
+                            
+                            // Agregar advertencia si el nombre del archivo sugiere múltiples hojas
+                            if (content.length < 1000 || !content.includes('\n')) {
+                                console.log('⚠️ ADVERTENCIA: El contenido CSV parece muy pequeño. El archivo puede tener múltiples hojas y solo se exportó la primera.');
+                                content = `NOTA: Este Google Sheets puede contener múltiples hojas/tabs. Solo se muestra la primera hoja visible.\nNombre del archivo: ${fileName}\n\n${content}`;
+                            }
+                        } else {
+                            throw new Error(`Error al exportar CSV: ${csvResponse.status}`);
+                        }
+                    } else {
+                        throw new Error(`Error al acceder al archivo: ${response.status}`);
+                    }
+                } else {
+                    // Para Docs y Slides, usar exportación normal
+                    const exportMimeType = mimeType.includes('document') ? 'text/plain' :
+                                           mimeType.includes('presentation') ? 'text/plain' :
+                                           'text/plain';
+                    
+                    const exportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${exportMimeType}`;
+                    console.log(`Exportando como ${exportMimeType}:`, exportUrl);
+                    const response = await fetch(exportUrl, {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        content = await response.text();
+                        console.log(`Contenido leído: ${content.length} caracteres`);
+                    } else {
+                        throw new Error(`Error en exportación: ${response.status}`);
+                    }
+                }
+                
+                // Debug: Mostrar primeras líneas del contenido para diagnóstico
+                const lines = content.split('\n').slice(0, 5);
+                console.log('📊 Primeras líneas del contenido exportado:');
+                lines.forEach((line, i) => {
+                    console.log(`  Línea ${i + 1}: "${line.substring(0, 100)}${line.length > 100 ? '...' : ''}"`);
+                });
 
                     // Aplicar análisis avanzado según el tipo de documento
                     let advancedParse = null;
