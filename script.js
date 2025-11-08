@@ -809,37 +809,52 @@ function isValidDate(dateString) {
 function generateAnalysisSummary(structure) {
     if (!structure) return 'Sin análisis disponible';
 
-    const categories = structure.detectedCategories;
     const columns = structure.columns;
 
-    let summary = `CSV analizado: ${structure.totalRows} filas, ${columns.length} columnas.\n`;
+    let summary = `CSV analizado: ${structure.totalRows} filas, ${columns.length} columnas.\n\n`;
 
-    if (categories.length > 0) {
-        summary += `Categorías detectadas: ${categories.join(', ')}.\n`;
-    }
+    // Listar TODAS las columnas disponibles en el documento
+    summary += 'COLUMNAS DISPONIBLES:\n';
+    columns.forEach((col, index) => {
+        summary += `${index + 1}. ${col.name}`;
+        if (col.type) {
+            summary += ` (tipo: ${col.type})`;
+        }
+        summary += '\n';
+    });
 
-    // Resumir columnas importantes
-    const importantColumns = columns.filter(col => col.category !== 'unknown' && col.confidence > 0.5);
-    if (importantColumns.length > 0) {
-        summary += 'Columnas clave: ';
-        summary += importantColumns.map(col => `${col.name} (${col.category})`).join(', ');
-        summary += '.\n';
-    }
-
-    // Incluir valores únicos de columnas categóricas importantes (role, status, priority, category)
+    // Detectar y reportar columnas con valores categóricos (pocos valores únicos)
     const categoricalColumns = columns.filter(col => 
-        ['role', 'status', 'priority', 'category', 'phase'].includes(col.category) && 
         col.uniqueCount > 0 && 
-        col.uniqueCount <= 50
+        col.uniqueCount <= 50 &&
+        col.type === 'text'
     );
     
     if (categoricalColumns.length > 0) {
-        summary += '\nValores únicos detectados:\n';
+        summary += '\nVALORES ÚNICOS EN COLUMNAS CATEGÓRICAS:\n';
         categoricalColumns.forEach(col => {
             if (col.values && col.values.length > 0) {
-                const valuesList = col.values.slice(0, 20).join(', ');
-                summary += `- ${col.name}: ${valuesList}${col.values.length > 20 ? '...' : ''}\n`;
+                const valuesList = col.values.slice(0, 30).join(', ');
+                summary += `- ${col.name} (${col.uniqueCount} valores únicos): ${valuesList}${col.values.length > 30 ? '...' : ''}\n`;
             }
+        });
+    }
+
+    // Reportar columnas numéricas
+    const numericColumns = columns.filter(col => col.type === 'number');
+    if (numericColumns.length > 0) {
+        summary += '\nCOLUMNAS NUMÉRICAS:\n';
+        numericColumns.forEach(col => {
+            summary += `- ${col.name}\n`;
+        });
+    }
+
+    // Reportar columnas de fecha
+    const dateColumns = columns.filter(col => col.type === 'date');
+    if (dateColumns.length > 0) {
+        summary += '\nCOLUMNAS DE FECHA:\n';
+        dateColumns.forEach(col => {
+            summary += `- ${col.name}\n`;
         });
     }
 
