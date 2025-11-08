@@ -1424,6 +1424,1096 @@ function generatePDFAnalysisSummary(structure) {
 }
 
 // ========================================
+// OCR PROCESSING FOR IMAGES AND COMPLEX LAYOUTS
+// ========================================
+
+// Función principal para procesar documentos con OCR
+async function processDocumentWithOCR(fileUrl, mimeType) {
+    try {
+        console.log('🔍 Iniciando procesamiento OCR para:', mimeType);
+
+        // Para PDFs con imágenes o layouts complejos
+        if (mimeType === 'application/pdf') {
+            return await processPDFWithOCR(fileUrl);
+        }
+
+        // Para imágenes directamente
+        if (mimeType.startsWith('image/')) {
+            return await processImageWithOCR(fileUrl);
+        }
+
+        // Para Google Sheets exportados como PDF
+        if (mimeType.includes('spreadsheet') || fileUrl.includes('export?format=pdf')) {
+            return await processSheetPDFWithOCR(fileUrl);
+        }
+
+        throw new Error(`Tipo de archivo no soportado para OCR: ${mimeType}`);
+
+    } catch (error) {
+        console.error('❌ Error en procesamiento OCR:', error);
+        throw error;
+    }
+}
+
+// Función para procesar PDFs con OCR (para páginas con imágenes)
+async function processPDFWithOCR(pdfUrl) {
+    try {
+        console.log('📕 Procesando PDF con OCR...');
+
+        // Cargar PDF usando PDF.js
+        const loadingTask = pdfjsLib.getDocument(pdfUrl);
+        const pdf = await loadingTask.promise;
+
+        const numPages = pdf.numPages;
+        const ocrResults = [];
+
+        console.log(`📄 PDF tiene ${numPages} páginas, procesando con OCR...`);
+
+        // Procesar cada página
+        for (let pageNum = 1; pageNum <= Math.min(numPages, 10); pageNum++) { // Limitar a 10 páginas máximo
+            try {
+                const page = await pdf.getPage(pageNum);
+                const viewport = page.getViewport({ scale: 2.0 }); // Escala alta para mejor OCR
+
+                // Crear canvas para renderizar la página
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                // Renderizar página en canvas
+                const renderContext = {
+                    canvasContext: context,
+                    viewport: viewport
+                };
+
+                await page.render(renderContext).promise;
+
+                // Convertir canvas a imagen y procesar con OCR
+                const imageData = canvas.toDataURL('image/png');
+                const ocrResult = await performOCR(imageData);
+
+                if (ocrResult && ocrResult.trim()) {
+                    ocrResults.push({
+                        pageNumber: pageNum,
+                        text: ocrResult,
+                        confidence: ocrResult.confidence || 0
+                    });
+                }
+
+            } catch (pageError) {
+                console.warn(`⚠️ Error procesando página ${pageNum} del PDF:`, pageError);
+            }
+        }
+
+        // Combinar resultados
+        const combinedText = ocrResults.map(result =>
+            `=== PÁGINA ${result.pageNumber} ===\n${result.text}`
+        ).join('\n\n');
+
+        const averageConfidence = ocrResults.length > 0
+            ? ocrResults.reduce((sum, r) => sum + (r.confidence || 0), 0) / ocrResults.length
+            : 0;
+
+        return {
+            content: combinedText,
+            structure: {
+                type: 'pdf_ocr',
+                pagesProcessed: ocrResults.length,
+                totalPages: numPages,
+                averageConfidence: averageConfidence,
+                ocrPages: ocrResults
+            },
+            analysis: `PDF procesado con OCR: ${ocrResults.length}/${numPages} páginas, confianza promedio: ${Math.round(averageConfidence)}%`
+        };
+
+    } catch (error) {
+        console.error('❌ Error procesando PDF con OCR:', error);
+        throw new Error(`Error en OCR de PDF: ${error.message}`);
+    }
+}
+
+// Función para procesar imágenes con OCR
+async function processImageWithOCR(imageUrl) {
+    try {
+        console.log('🖼️ Procesando imagen con OCR...');
+
+        const ocrResult = await performOCR(imageUrl);
+
+        return {
+            content: ocrResult,
+            structure: {
+                type: 'image_ocr',
+                confidence: ocrResult.confidence || 0
+            },
+            analysis: `Imagen procesada con OCR (confianza: ${Math.round(ocrResult.confidence || 0)}%)`
+        };
+
+    } catch (error) {
+        console.error('❌ Error procesando imagen con OCR:', error);
+        throw new Error(`Error en OCR de imagen: ${error.message}`);
+    }
+}
+
+// Función para procesar hojas de cálculo exportadas como PDF con OCR
+async function processSheetPDFWithOCR(pdfUrl) {
+    try {
+        console.log('📊 Procesando hoja de cálculo PDF con OCR avanzado...');
+
+        const pdfResult = await processPDFWithOCR(pdfUrl);
+
+        // Usar análisis visual avanzado para reconstruir tablas
+        const visualAnalysis = analyzeVisualLayout(pdfResult.content);
+
+        // También hacer extracción básica como respaldo
+        const basicTableStructure = extractTableFromOCR(pdfResult.content);
+
+        // Combinar resultados: usar análisis visual si encontró tablas, sino usar básico
+        const finalTables = visualAnalysis.tables.length > 0 ? visualAnalysis.tables : basicTableStructure.tables;
+
+        console.log(`📊 OCR avanzado: ${visualAnalysis.tables.length} tablas visuales, ${basicTableStructure.tables.length} tablas básicas`);
+
+        return {
+            content: pdfResult.content,
+            structure: {
+                ...pdfResult.structure,
+                type: 'sheet_pdf_ocr_advanced',
+                visualTables: visualAnalysis.tables,
+                basicTables: basicTableStructure.tables,
+                extractedTables: finalTables,
+                totalTables: finalTables.length,
+                visualElements: visualAnalysis.visualElements.length,
+                patternsDetected: visualAnalysis.patterns.length
+            },
+            analysis: `${pdfResult.analysis}\nTablas reconstruidas: ${finalTables.length} (visual: ${visualAnalysis.tables.length}, básico: ${basicTableStructure.tables.length})`
+        };
+
+    } catch (error) {
+        console.error('❌ Error procesando hoja PDF con OCR avanzado:', error);
+        throw error;
+    }
+}
+
+// Función principal para ejecutar OCR usando Tesseract.js
+async function performOCR(imageSource) {
+    try {
+        console.log('🔤 Ejecutando OCR con Tesseract.js...');
+
+        // Crear worker de Tesseract
+        const worker = await Tesseract.createWorker();
+
+        // Cargar idioma español e inglés
+        await worker.loadLanguage('spa+eng');
+        await worker.initialize('spa+eng');
+
+        // Configurar parámetros para mejor precisión
+        await worker.setParameters({
+            tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzáéíóúÁÉÍÓÚñÑ.,;:!?()[]{}+-*/=<>@#$%&|\n\t ',
+            tessedit_pageseg_mode: '6', // Uniform block of text
+            tessedit_ocr_engine_mode: '2' // Neural nets LSTM engine
+        });
+
+        // Ejecutar OCR
+        const { data: { text, confidence } } = await worker.recognize(imageSource);
+
+        // Limpiar worker
+        await worker.terminate();
+
+        console.log(`✅ OCR completado. Texto extraído: ${text.length} caracteres, confianza: ${confidence}`);
+
+        return {
+            text: text.trim(),
+            confidence: confidence
+        };
+
+    } catch (error) {
+        console.error('❌ Error en OCR con Tesseract:', error);
+        throw new Error(`Error en procesamiento OCR: ${error.message}`);
+    }
+}
+
+// Función para extraer estructura tabular del texto OCR
+function extractTableFromOCR(ocrText) {
+    try {
+        console.log('📋 Extrayendo estructura tabular del texto OCR...');
+
+        const lines = ocrText.split('\n').filter(line => line.trim());
+        const tables = [];
+        let currentTable = null;
+        let inTable = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            // Detectar posibles filas de tabla (múltiples valores separados por espacios o tabs)
+            const tabSeparated = line.split('\t').filter(cell => cell.trim());
+            const spaceSeparated = line.split(/\s{2,}/).filter(cell => cell.trim());
+
+            // Usar la separación que dé más columnas
+            const cells = tabSeparated.length > spaceSeparated.length ? tabSeparated : spaceSeparated;
+
+            if (cells.length >= 2) { // Al menos 2 columnas para considerar tabla
+                if (!inTable) {
+                    inTable = true;
+                    currentTable = {
+                        startLine: i,
+                        headers: cells,
+                        rows: []
+                    };
+                    tables.push(currentTable);
+                } else {
+                    currentTable.rows.push(cells);
+                }
+            } else if (inTable) {
+                // Línea vacía o sin estructura tabular, terminar tabla
+                currentTable.endLine = i - 1;
+                inTable = false;
+                currentTable = null;
+            }
+        }
+
+        // Cerrar tabla abierta
+        if (inTable && currentTable) {
+            currentTable.endLine = lines.length - 1;
+        }
+
+        console.log(`📊 Extraídas ${tables.length} tablas del texto OCR`);
+
+        return {
+            tables: tables,
+            totalLines: lines.length
+        };
+
+    } catch (error) {
+        console.error('❌ Error extrayendo tablas del OCR:', error);
+        return { tables: [], totalLines: 0 };
+    }
+}
+
+// ========================================
+// ANALIZADOR VISUAL DE LAYOUT PARA OCR
+// ========================================
+
+// Función principal para analizar layout visual y reconstruir tablas
+function analyzeVisualLayout(ocrText) {
+    try {
+        console.log('🔍 Analizando layout visual para reconstruir tablas...');
+
+        const lines = ocrText.split('\n').filter(line => line.trim());
+        const visualElements = [];
+
+        // Primera pasada: detectar elementos visuales y sus posiciones
+        lines.forEach((line, index) => {
+            const visualInfo = analyzeLineVisualProperties(line, index);
+            visualElements.push(visualInfo);
+        });
+
+        // Segunda pasada: identificar patrones de tabla
+        const tablePatterns = detectTablePatterns(visualElements);
+
+        // Tercera pasada: reconstruir tablas basadas en patrones
+        const reconstructedTables = reconstructTablesFromPatterns(tablePatterns, visualElements);
+
+        console.log(`✅ Análisis visual completado: ${reconstructedTables.length} tablas reconstruidas`);
+
+        return {
+            tables: reconstructedTables,
+            visualElements: visualElements,
+            patterns: tablePatterns
+        };
+
+    } catch (error) {
+        console.error('❌ Error en análisis visual:', error);
+        return { tables: [], visualElements: [], patterns: [] };
+    }
+}
+
+// Función para analizar propiedades visuales de una línea
+function analyzeLineVisualProperties(line, lineIndex) {
+    const trimmed = line.trim();
+    const leadingSpaces = line.length - line.trimStart().length;
+
+    // Detectar posibles columnas por separación de espacios
+    const spaceColumns = line.split(/\s{2,}/).filter(cell => cell.trim());
+    const tabColumns = line.split('\t').filter(cell => cell.trim());
+
+    // Usar la separación más apropiada
+    const columns = tabColumns.length > spaceColumns.length ? tabColumns : spaceColumns;
+
+    // Detectar alineación y formato
+    const alignment = detectTextAlignment(line);
+    const hasBorders = detectBorderIndicators(line);
+    const indentationLevel = Math.floor(leadingSpaces / 4); // Nivel de indentación
+
+    // Detectar si parece header (mayúsculas, corto, etc.)
+    const isHeader = detectHeaderPattern(trimmed);
+
+    // Calcular densidad de números vs texto
+    const numberDensity = calculateNumberDensity(trimmed);
+
+    return {
+        lineIndex: lineIndex,
+        originalLine: line,
+        trimmedLine: trimmed,
+        leadingSpaces: leadingSpaces,
+        indentationLevel: indentationLevel,
+        columns: columns,
+        columnCount: columns.length,
+        alignment: alignment,
+        hasBorders: hasBorders,
+        isHeader: isHeader,
+        numberDensity: numberDensity,
+        length: trimmed.length
+    };
+}
+
+// Función para detectar alineación del texto
+function detectTextAlignment(line) {
+    const trimmed = line.trim();
+    const leadingSpaces = line.length - line.trimStart().length;
+    const trailingSpaces = line.length - line.trimEnd().length;
+    const totalSpaces = leadingSpaces + trailingSpaces;
+
+    if (totalSpaces === 0) return 'left';
+    if (leadingSpaces > trailingSpaces * 2) return 'right';
+    if (Math.abs(leadingSpaces - trailingSpaces) < 3) return 'center';
+    return 'left';
+}
+
+// Función para detectar indicadores de bordes
+function detectBorderIndicators(line) {
+    // Detectar caracteres de tabla comunes
+    const borderChars = /[|+─│┌┐└┘├┤┬┴┼═║╒╕╘╛╞╡╤╧╪]/;
+    const hasDashes = line.includes('---') || line.includes('===') || line.includes('___');
+    const hasPipes = line.includes('|') && line.split('|').length > 2;
+
+    return {
+        hasBorderChars: borderChars.test(line),
+        hasSeparatorLines: hasDashes,
+        hasTablePipes: hasPipes,
+        confidence: (borderChars.test(line) ? 1 : 0) + (hasDashes ? 1 : 0) + (hasPipes ? 1 : 0)
+    };
+}
+
+// Función para detectar patrones de encabezado
+function detectHeaderPattern(text) {
+    if (text.length === 0) return false;
+
+    // Headers suelen ser cortos y pueden estar en mayúsculas
+    const isShort = text.length < 50;
+    const isAllCaps = text === text.toUpperCase() && text !== text.toLowerCase();
+    const hasTitleCase = /^[A-Z][a-z]*(\s+[A-Z][a-z]*)*$/.test(text);
+    const hasNumbers = /\d/.test(text);
+
+    // Headers generalmente no tienen mucha puntuación al final
+    const endsWithColon = text.endsWith(':');
+    const endsWithPeriod = text.endsWith('.');
+
+    // Puntaje de header
+    let score = 0;
+    if (isShort) score += 1;
+    if (isAllCaps) score += 2;
+    if (hasTitleCase) score += 1;
+    if (endsWithColon) score += 1;
+    if (!hasNumbers && text.length > 3) score += 1;
+
+    return score >= 2;
+}
+
+// Función para calcular densidad de números
+function calculateNumberDensity(text) {
+    const numbers = text.match(/\d+/g);
+    const letters = text.match(/[a-zA-Z]/g);
+
+    const numberCount = numbers ? numbers.join('').length : 0;
+    const letterCount = letters ? letters.length : 0;
+    const totalChars = text.replace(/\s/g, '').length;
+
+    if (totalChars === 0) return 0;
+    return numberCount / totalChars;
+}
+
+// Función para detectar patrones de tabla
+function detectTablePatterns(visualElements) {
+    const patterns = [];
+
+    for (let i = 0; i < visualElements.length; i++) {
+        const element = visualElements[i];
+
+        // Buscar secuencias de líneas con columnas similares
+        if (element.columnCount >= 2) {
+            let patternLength = 1;
+            let consistentColumns = true;
+
+            // Verificar si las siguientes líneas tienen columnas similares
+            for (let j = i + 1; j < Math.min(i + 10, visualElements.length); j++) {
+                const nextElement = visualElements[j];
+
+                // Si tiene columnas y el conteo es similar
+                if (nextElement.columnCount >= 2 &&
+                    Math.abs(nextElement.columnCount - element.columnCount) <= 1) {
+                    patternLength++;
+                } else if (nextElement.columnCount < 2 && patternLength >= 2) {
+                    // Línea sin columnas termina el patrón
+                    break;
+                } else if (nextElement.columnCount >= 2) {
+                    // Columnas diferentes, verificar si es válido
+                    consistentColumns = false;
+                }
+            }
+
+            // Si encontramos un patrón válido
+            if (patternLength >= 2 && consistentColumns) {
+                patterns.push({
+                    startIndex: i,
+                    length: patternLength,
+                    columnCount: element.columnCount,
+                    isHeaderRow: element.isHeader,
+                    confidence: calculatePatternConfidence(visualElements.slice(i, i + patternLength))
+                });
+            }
+        }
+    }
+
+    console.log(`🔍 Detectados ${patterns.length} patrones de tabla`);
+    return patterns;
+}
+
+// Función para calcular confianza de un patrón
+function calculatePatternConfidence(patternElements) {
+    if (patternElements.length === 0) return 0;
+
+    let totalConfidence = 0;
+
+    patternElements.forEach(element => {
+        // Confianza basada en número de columnas
+        const columnConfidence = Math.min(element.columnCount / 5, 1) * 0.4;
+
+        // Confianza basada en consistencia de alineación
+        const alignmentConsistency = 0.3; // Placeholder
+
+        // Confianza basada en indicadores visuales
+        const visualConfidence = element.hasBorders.confidence * 0.3;
+
+        totalConfidence += columnConfidence + alignmentConsistency + visualConfidence;
+    });
+
+    return totalConfidence / patternElements.length;
+}
+
+// Función para reconstruir tablas desde patrones detectados
+function reconstructTablesFromPatterns(patterns, visualElements) {
+    const tables = [];
+
+    patterns.forEach(pattern => {
+        const tableElements = visualElements.slice(pattern.startIndex, pattern.startIndex + pattern.length);
+        const table = {
+            headers: [],
+            rows: [],
+            columnCount: pattern.columnCount,
+            confidence: pattern.confidence,
+            visualProperties: {
+                hasBorders: tableElements.some(el => el.hasBorders.confidence > 0),
+                alignment: tableElements[0]?.alignment || 'left',
+                indentationLevel: tableElements[0]?.indentationLevel || 0
+            }
+        };
+
+        // Primera fila como headers si parece header
+        if (pattern.isHeaderRow && tableElements.length > 0) {
+            table.headers = tableElements[0].columns;
+            table.rows = tableElements.slice(1).map(el => el.columns);
+        } else {
+            // Sin headers claros, usar primera fila como headers
+            table.headers = tableElements[0].columns;
+            table.rows = tableElements.slice(1).map(el => el.columns);
+        }
+
+        // Normalizar columnas (asegurar que todas las filas tengan el mismo número)
+        const maxColumns = Math.max(...table.rows.map(row => row.length), table.headers.length);
+        table.headers = normalizeRowLength(table.headers, maxColumns);
+        table.rows = table.rows.map(row => normalizeRowLength(row, maxColumns));
+
+        // Detectar tipos de columna
+        table.columnTypes = inferColumnTypes(table);
+
+        tables.push(table);
+    });
+
+    console.log(`🔧 Reconstruidas ${tables.length} tablas desde patrones visuales`);
+    return tables;
+}
+
+// Función para normalizar longitud de filas
+function normalizeRowLength(row, targetLength) {
+    while (row.length < targetLength) {
+        row.push(''); // Agregar celdas vacías
+    }
+    return row.slice(0, targetLength); // Cortar si es más largo
+}
+
+// Función para inferir tipos de columna
+function inferColumnTypes(table) {
+    const columnTypes = [];
+
+    for (let colIndex = 0; colIndex < table.headers.length; colIndex++) {
+        const values = table.rows.map(row => row[colIndex]).filter(val => val && val.trim());
+
+        // Agregar header si existe
+        if (table.headers[colIndex]) {
+            values.unshift(table.headers[colIndex]);
+        }
+
+        const inferredType = inferColumnType(values);
+        columnTypes.push(inferredType);
+    }
+
+    return columnTypes;
+}
+
+// Función para inferir tipo de columna
+function inferColumnType(values) {
+    if (values.length === 0) return 'unknown';
+
+    let numberCount = 0;
+    let dateCount = 0;
+    let emailCount = 0;
+    let currencyCount = 0;
+
+    values.forEach(value => {
+        const trimmed = value.toString().trim();
+
+        // Detectar números
+        if (!isNaN(parseFloat(trimmed)) && isFinite(trimmed)) {
+            numberCount++;
+        }
+
+        // Detectar fechas
+        if (isValidDate(trimmed)) {
+            dateCount++;
+        }
+
+        // Detectar emails
+        if (trimmed.includes('@') && trimmed.includes('.')) {
+            emailCount++;
+        }
+
+        // Detectar moneda
+        if (/[$€£¥₹₽₩₦₨₪₫₡₵₺₴₸₼₲₱₭₯₰₳₶₷₹₻₽₾₿]/u.test(trimmed) ||
+            trimmed.includes('$') || trimmed.includes('€') ||
+            /\d+[,.]\d{2}/.test(trimmed)) {
+            currencyCount++;
+        }
+    });
+
+    const total = values.length;
+    const numberRatio = numberCount / total;
+    const dateRatio = dateCount / total;
+    const emailRatio = emailCount / total;
+    const currencyRatio = currencyCount / total;
+
+    if (currencyRatio > 0.5) return 'currency';
+    if (dateRatio > 0.5) return 'date';
+    if (emailRatio > 0.5) return 'email';
+    if (numberRatio > 0.7) return 'number';
+    if (numberRatio > 0.3) return 'mixed_numeric';
+
+    return 'text';
+}
+
+// ========================================
+// ESTRATEGIA DUAL DE EXPORTACIÓN PARA GOOGLE SHEETS
+// ========================================
+
+// Función para intentar exportación CSV primero (estrategia primaria)
+async function tryCSVExportFirst(fileId, fileName) {
+    console.log('📊 Ejecutando estrategia CSV primaria...');
+
+    // Usar Google Sheets API para obtener todas las hojas
+    const sheetsApiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?fields=sheets(properties(sheetId,title,index))`;
+    console.log('🔍 Obteniendo lista de hojas con Sheets API...');
+
+    const sheetsResponse = await fetch(sheetsApiUrl, {
+        headers: {
+            'Authorization': `Bearer ${accessToken}`
+        }
+    });
+
+    if (sheetsResponse.ok) {
+        const sheetsData = await sheetsResponse.json();
+        const sheets = sheetsData.sheets || [];
+
+        console.log(`📑 Encontradas ${sheets.length} hoja(s) en el documento`);
+        sheets.forEach(sheet => {
+            console.log(`   • "${sheet.properties.title}" (index: ${sheet.properties.index})`);
+        });
+
+        // Ordenar hojas por prioridad (más reciente primero)
+        const sortedSheets = smartSortSheets(sheets);
+
+        console.log('📊 Orden de prioridad de hojas (más reciente/relevante primero):');
+        sortedSheets.forEach((sheet, i) => {
+            console.log(`   ${i + 1}. "${sheet.properties.title}"`);
+        });
+
+        // Exportar todas las hojas relevantes (máximo 3 para evitar sobrecarga)
+        const sheetsToExport = sortedSheets.slice(0, 3);
+        const sheetContents = [];
+
+        for (const sheet of sheetsToExport) {
+            const sheetTitle = sheet.properties.title;
+            console.log(`📥 Exportando hoja CSV: "${sheetTitle}"...`);
+
+            // Exportar hoja específica usando gid
+            const gid = sheet.properties.sheetId;
+            const sheetCsvUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv&gid=${gid}`;
+
+            const sheetResponse = await fetch(sheetCsvUrl, {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            });
+
+            if (sheetResponse.ok) {
+                const sheetContent = await sheetResponse.text();
+                console.log(`✅ Hoja "${sheetTitle}" exportada: ${sheetContent.length} caracteres`);
+
+                sheetContents.push({
+                    title: sheetTitle,
+                    content: sheetContent,
+                    index: sheet.properties.index
+                });
+            } else {
+                console.warn(`⚠️ No se pudo exportar hoja "${sheetTitle}": ${sheetResponse.status}`);
+            }
+        }
+
+        // Combinar contenido de todas las hojas con separadores claros
+        if (sheetContents.length > 0) {
+            let content = `=== GOOGLE SHEETS: ${fileName} ===\n`;
+            content += `Total de hojas en el documento: ${sheets.length}\n`;
+            content += `Hojas incluidas en este análisis: ${sheetContents.length}\n`;
+            content += `Método: Exportación CSV (API de Sheets)\n\n`;
+
+            sheetContents.forEach((sheet, index) => {
+                content += `\n${'='.repeat(80)}\n`;
+                content += `HOJA ${index + 1}: "${sheet.title}"\n`;
+                content += `${'='.repeat(80)}\n\n`;
+                content += sheet.content;
+                content += '\n\n';
+            });
+
+            console.log(`✅ Contenido CSV combinado: ${content.length} caracteres totales`);
+
+            return {
+                content: content,
+                method: 'csv_api',
+                sheetsProcessed: sheetContents.length,
+                totalSheets: sheets.length
+            };
+        } else {
+            throw new Error('No se pudo exportar ninguna hoja del documento');
+        }
+    } else {
+        // Fallback: Si Sheets API falla, usar exportación CSV simple
+        console.warn('⚠️ API de Sheets no disponible, usando exportación CSV simple (solo primera hoja)');
+
+        const csvExportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
+        const csvResponse = await fetch(csvExportUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        if (csvResponse.ok) {
+            const content = await csvResponse.text();
+            const finalContent = `NOTA: Solo se pudo exportar la primera hoja del documento (API de Sheets no disponible).\nNombre del archivo: ${fileName}\nMétodo: CSV de respaldo (primera hoja)\n\n${content}`;
+
+            console.log(`Contenido CSV leído (respaldo): ${content.length} caracteres`);
+
+            return {
+                content: finalContent,
+                method: 'csv_fallback',
+                sheetsProcessed: 1,
+                totalSheets: 1
+            };
+        } else {
+            throw new Error(`Error al exportar CSV: ${csvResponse.status}`);
+        }
+    }
+}
+
+// Función para evaluar la calidad del contenido CSV y recomendar estrategia
+function assessCSVQuality(csvContent) {
+    try {
+        console.log('🔍 Evaluando calidad del CSV...');
+
+        if (!csvContent || csvContent.trim().length === 0) {
+            return { quality: 'empty', recommendation: 'ocr', reason: 'Contenido vacío' };
+        }
+
+        const lines = csvContent.split('\n').filter(line => line.trim());
+
+        if (lines.length < 2) {
+            return { quality: 'too_small', recommendation: 'ocr', reason: 'Demasiado pequeño para análisis tabular' };
+        }
+
+        // Verificar si tiene estructura tabular
+        const firstLine = parseCSVLine(lines[0]);
+        const secondLine = lines.length > 1 ? parseCSVLine(lines[1]) : [];
+
+        if (firstLine.length < 2) {
+            return { quality: 'not_tabular', recommendation: 'ocr', reason: 'No tiene estructura tabular' };
+        }
+
+        // Calcular métricas avanzadas
+        const metrics = calculateCSVQualityMetrics(lines);
+
+        console.log(`📊 Estadísticas CSV: ${lines.length} líneas, ${firstLine.length} columnas`);
+        console.log(`📊 Métricas: vacío=${Math.round(metrics.emptyRatio * 100)}%, únicos=${Math.round(metrics.uniquenessRatio * 100)}%, densidad=${Math.round(metrics.dataDensity * 100)}%`);
+
+        // Análisis de patrones de datos
+        const dataPatterns = analyzeDataPatterns(lines);
+
+        // Recomendación inteligente
+        const recommendation = decideProcessingStrategy(metrics, dataPatterns);
+
+        return {
+            quality: metrics.overallQuality,
+            recommendation: recommendation.strategy,
+            reason: recommendation.reason,
+            metrics: metrics,
+            patterns: dataPatterns
+        };
+
+    } catch (error) {
+        console.error('❌ Error evaluando calidad CSV:', error);
+        return { quality: 'error', recommendation: 'ocr', reason: `Error en evaluación: ${error.message}` };
+    }
+}
+
+// Función para calcular métricas detalladas de calidad CSV
+function calculateCSVQualityMetrics(lines) {
+    let totalCells = 0;
+    let emptyCells = 0;
+    let numericCells = 0;
+    let textCells = 0;
+    let dateCells = 0;
+    const uniqueValues = new Set();
+    const columnWidths = [];
+    const rowLengths = [];
+
+    lines.forEach((line, lineIndex) => {
+        const cells = parseCSVLine(line);
+        rowLengths.push(cells.length);
+
+        if (lineIndex === 0) {
+            // Analizar headers
+            columnWidths.push(...cells.map(cell => cell.length));
+        }
+
+        cells.forEach(cell => {
+            totalCells++;
+            const trimmed = cell.trim();
+
+            if (!trimmed) {
+                emptyCells++;
+            } else {
+                uniqueValues.add(trimmed.toLowerCase());
+
+                // Clasificar tipo de dato
+                if (!isNaN(parseFloat(trimmed)) && isFinite(trimmed)) {
+                    numericCells++;
+                } else if (isValidDate(trimmed)) {
+                    dateCells++;
+                } else {
+                    textCells++;
+                }
+            }
+        });
+    });
+
+    const emptyRatio = totalCells > 0 ? emptyCells / totalCells : 1;
+    const uniquenessRatio = totalCells > 0 ? uniqueValues.size / totalCells : 0;
+    const dataDensity = 1 - emptyRatio;
+    const avgRowLength = rowLengths.reduce((a, b) => a + b, 0) / rowLengths.length;
+    const rowLengthVariance = rowLengths.reduce((sum, len) => sum + Math.pow(len - avgRowLength, 2), 0) / rowLengths.length;
+
+    // Calcular calidad general
+    let overallQuality = 'poor';
+    if (dataDensity >= 0.7 && rowLengthVariance < 2 && lines.length >= 10) {
+        overallQuality = 'good';
+    } else if (dataDensity >= 0.5 && lines.length >= 5) {
+        overallQuality = 'acceptable';
+    } else if (emptyRatio > 0.8) {
+        overallQuality = 'mostly_empty';
+    } else if (uniquenessRatio < 0.1) {
+        overallQuality = 'low_diversity';
+    }
+
+    return {
+        totalLines: lines.length,
+        totalCells: totalCells,
+        emptyCells: emptyCells,
+        numericCells: numericCells,
+        textCells: textCells,
+        dateCells: dateCells,
+        uniqueValues: uniqueValues.size,
+        emptyRatio: emptyRatio,
+        uniquenessRatio: uniquenessRatio,
+        dataDensity: dataDensity,
+        avgRowLength: avgRowLength,
+        rowLengthVariance: rowLengthVariance,
+        overallQuality: overallQuality
+    };
+}
+
+// Función para analizar patrones de datos
+function analyzeDataPatterns(lines) {
+    const patterns = {
+        hasHeaders: false,
+        headerPatterns: [],
+        dataConsistency: 0,
+        columnTypes: [],
+        potentialMergedCells: false,
+        formattingIssues: []
+    };
+
+    if (lines.length === 0) return patterns;
+
+    // Verificar si primera línea parece headers
+    const firstLine = parseCSVLine(lines[0]);
+    const secondLine = lines.length > 1 ? parseCSVLine(lines[1]) : [];
+
+    patterns.hasHeaders = detectHeaderRow(firstLine, secondLine);
+    patterns.headerPatterns = analyzeHeaderPatterns(firstLine);
+
+    // Verificar consistencia de tipos por columna
+    if (lines.length > 1) {
+        patterns.columnTypes = inferColumnTypesFromSample(lines.slice(0, Math.min(10, lines.length)));
+    }
+
+    // Detectar posibles problemas de formato
+    patterns.formattingIssues = detectFormattingIssues(lines);
+
+    // Calcular consistencia general
+    patterns.dataConsistency = calculateDataConsistency(lines);
+
+    return patterns;
+}
+
+// Función para detectar si primera línea son headers
+function detectHeaderRow(firstLine, secondLine) {
+    if (!secondLine || secondLine.length === 0) return false;
+
+    let headerScore = 0;
+    let dataScore = 0;
+
+    firstLine.forEach((header, index) => {
+        const headerTrimmed = header.trim();
+        const dataValue = secondLine[index]?.trim() || '';
+
+        // Headers suelen ser más cortos y descriptivos
+        if (headerTrimmed.length < 50 && headerTrimmed.length > 0) headerScore += 0.5;
+        if (headerTrimmed.includes(' ') || /[A-Z]/.test(headerTrimmed)) headerScore += 0.3;
+
+        // Datos suelen ser más variables
+        if (dataValue.length > 0 && dataValue !== headerTrimmed) dataScore += 0.4;
+        if (!isNaN(parseFloat(dataValue)) || isValidDate(dataValue)) dataScore += 0.3;
+    });
+
+    return headerScore > dataScore;
+}
+
+// Función para analizar patrones de headers
+function analyzeHeaderPatterns(headerLine) {
+    const patterns = [];
+
+    headerLine.forEach(header => {
+        const trimmed = header.trim().toLowerCase();
+
+        if (trimmed.includes('id') || trimmed.includes('código')) patterns.push('identifier');
+        else if (trimmed.includes('nombre') || trimmed.includes('name')) patterns.push('name');
+        else if (trimmed.includes('fecha') || trimmed.includes('date')) patterns.push('date');
+        else if (trimmed.includes('email') || trimmed.includes('correo')) patterns.push('contact');
+        else if (trimmed.includes('total') || trimmed.includes('importe')) patterns.push('numeric');
+        else patterns.push('unknown');
+    });
+
+    return patterns;
+}
+
+// Función para inferir tipos de columna desde muestra
+function inferColumnTypesFromSample(sampleLines) {
+    const maxCols = Math.max(...sampleLines.map(line => parseCSVLine(line).length));
+    const columnSamples = Array.from({ length: maxCols }, () => []);
+
+    // Recolectar muestras por columna
+    sampleLines.forEach(line => {
+        const cells = parseCSVLine(line);
+        cells.forEach((cell, colIndex) => {
+            if (colIndex < maxCols) {
+                columnSamples[colIndex].push(cell.trim());
+            }
+        });
+    });
+
+    // Inferir tipo para cada columna
+    return columnSamples.map(samples => {
+        const nonEmpty = samples.filter(s => s.length > 0);
+        if (nonEmpty.length === 0) return 'empty';
+
+        const numericCount = nonEmpty.filter(s => !isNaN(parseFloat(s))).length;
+        const dateCount = nonEmpty.filter(s => isValidDate(s)).length;
+
+        const numericRatio = numericCount / nonEmpty.length;
+        const dateRatio = dateCount / nonEmpty.length;
+
+        if (dateRatio > 0.5) return 'date';
+        if (numericRatio > 0.7) return 'numeric';
+        if (numericRatio > 0.3) return 'mixed';
+        return 'text';
+    });
+}
+
+// Función para detectar problemas de formato
+function detectFormattingIssues(lines) {
+    const issues = [];
+
+    const rowLengths = lines.map(line => parseCSVLine(line).length);
+    const avgLength = rowLengths.reduce((a, b) => a + b, 0) / rowLengths.length;
+    const maxVariance = Math.max(...rowLengths) - Math.min(...rowLengths);
+
+    if (maxVariance > 2) {
+        issues.push('Longitudes de fila inconsistentes');
+    }
+
+    if (avgLength < 2) {
+        issues.push('Muy pocas columnas');
+    }
+
+    return issues;
+}
+
+// Función para calcular consistencia de datos
+function calculateDataConsistency(lines) {
+    if (lines.length < 2) return 0;
+
+    const rowLengths = lines.map(line => parseCSVLine(line).length);
+    const avgLength = rowLengths.reduce((a, b) => a + b, 0) / rowLengths.length;
+    const variance = rowLengths.reduce((sum, len) => sum + Math.pow(len - avgLength, 2), 0) / rowLengths.length;
+    const consistency = Math.max(0, 1 - variance / avgLength);
+
+    return consistency;
+}
+
+// Función para decidir estrategia de procesamiento
+function decideProcessingStrategy(metrics, patterns) {
+    // Estrategia por defecto: usar OCR para layouts complejos
+    let strategy = 'ocr';
+    let reason = 'Estrategia OCR por defecto para máxima compatibilidad';
+
+    // Usar CSV si cumple criterios estrictos de calidad
+    if (metrics.overallQuality === 'good' &&
+        metrics.dataDensity >= 0.7 &&
+        metrics.rowLengthVariance < 1 &&
+        patterns.formattingIssues.length === 0) {
+
+        strategy = 'csv';
+        reason = 'CSV de alta calidad detectado - procesamiento directo eficiente';
+
+    } else if (metrics.overallQuality === 'acceptable' &&
+               patterns.dataConsistency > 0.8 &&
+               patterns.formattingIssues.length <= 1) {
+
+        strategy = 'csv';
+        reason = 'CSV aceptable con buena consistencia - usar procesamiento directo';
+
+    } else if (metrics.emptyRatio > 0.5) {
+
+        strategy = 'ocr';
+        reason = 'Alto porcentaje de celdas vacías - OCR puede reconstruir mejor la estructura visual';
+
+    } else if (metrics.rowLengthVariance > 2) {
+
+        strategy = 'ocr';
+        reason = 'Inconsistencia en número de columnas - OCR puede manejar layouts irregulares';
+
+    } else if (patterns.formattingIssues.length > 0) {
+
+        strategy = 'ocr';
+        reason = `Problemas de formato detectados: ${patterns.formattingIssues.join(', ')}`;
+
+    }
+
+    console.log(`🎯 Decisión de estrategia: ${strategy} - ${reason}`);
+
+    return { strategy, reason };
+}
+
+// Función para intentar OCR como respaldo
+async function tryOCRFallback(fileId, fileName) {
+    try {
+        console.log('🔍 Ejecutando OCR como respaldo...');
+
+        // Exportar como PDF para OCR
+        const pdfExportUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=pdf`;
+
+        console.log('📄 Exportando como PDF para OCR...');
+
+        const pdfResponse = await fetch(pdfExportUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        if (!pdfResponse.ok) {
+            throw new Error(`Error exportando PDF: ${pdfResponse.status}`);
+        }
+
+        // Convertir respuesta a blob
+        const pdfBlob = await pdfResponse.blob();
+
+        // Crear URL del blob para procesamiento
+        const pdfUrl = URL.createObjectURL(pdfBlob);
+
+        try {
+            // Procesar con OCR
+            const ocrResult = await processSheetPDFWithOCR(pdfUrl);
+
+            // Limpiar URL del blob
+            URL.revokeObjectURL(pdfUrl);
+
+            if (ocrResult && ocrResult.content) {
+                const finalContent = `=== GOOGLE SHEETS: ${fileName} ===\n`;
+                finalContent += `Método: OCR de respaldo (PDF → OCR)\n`;
+                finalContent += `Confianza promedio: ${Math.round(ocrResult.structure?.averageConfidence || 0)}%\n`;
+                finalContent += `Tablas extraídas: ${ocrResult.structure?.extractedTables?.length || 0}\n\n`;
+                finalContent += ocrResult.content;
+
+                return {
+                    content: finalContent,
+                    method: 'ocr_fallback',
+                    confidence: ocrResult.structure?.averageConfidence || 0,
+                    tablesExtracted: ocrResult.structure?.extractedTables?.length || 0
+                };
+            } else {
+                throw new Error('OCR no produjo contenido válido');
+            }
+
+        } catch (ocrError) {
+            // Limpiar URL del blob en caso de error
+            URL.revokeObjectURL(pdfUrl);
+            throw ocrError;
+        }
+
+    } catch (error) {
+        console.error('❌ Error en OCR de respaldo:', error);
+        throw new Error(`OCR de respaldo falló: ${error.message}`);
+    }
+}
+
+// ========================================
 // ADVANCED WORD DOCUMENT PARSING
 // ========================================
 
@@ -1686,10 +2776,10 @@ async function readFileContent(fileId, mimeType) {
             try {
                 let content = '';
                 
-                // Para Google Sheets, necesitamos manejar múltiples hojas
+                // Para Google Sheets, implementar estrategia dual: CSV → OCR
                 if (mimeType.includes('spreadsheet')) {
-                    console.log('📊 Procesando Google Sheets con soporte multi-hoja COMPLETO...');
-                    
+                    console.log('📊 Procesando Google Sheets con estrategia dual (CSV → OCR)...');
+
                     // Obtener metadata del archivo
                     const metadataUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`;
                     const metadataResponse = await fetch(metadataUrl, {
@@ -1697,105 +2787,73 @@ async function readFileContent(fileId, mimeType) {
                             'Authorization': `Bearer ${accessToken}`
                         }
                     });
-                    
+
                     const metadata = await metadataResponse.json();
                     const fileName = metadata.name || 'Google Sheet';
                     console.log(`📋 Nombre del archivo: ${fileName}`);
-                    
-                    // Usar Google Sheets API para obtener todas las hojas
-                    const sheetsApiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${fileId}?fields=sheets(properties(sheetId,title,index))`;
-                    console.log('🔍 Obteniendo lista de hojas con Sheets API...');
-                    
-                    const sheetsResponse = await fetch(sheetsApiUrl, {
-                        headers: {
-                            'Authorization': `Bearer ${accessToken}`
+
+                    let csvContent = null;
+                    let csvAssessment = { quality: 'unknown', recommendation: 'ocr', reason: 'Pendiente evaluación' };
+
+                    // ESTRATEGIA 1: Intentar CSV primero (Sheets API)
+                    try {
+                        console.log('📊 Intentando estrategia CSV primero...');
+                        const csvResult = await tryCSVExportFirst(fileId, fileName);
+
+                        if (csvResult && csvResult.content) {
+                            csvContent = csvResult.content;
+                            csvAssessment = assessCSVQuality(csvResult.content);
+                            console.log(`📊 Calidad CSV evaluada: ${csvAssessment.quality} - Recomendación: ${csvAssessment.recommendation}`);
+                            console.log(`📊 Razón: ${csvAssessment.reason}`);
                         }
-                    });
-                    
-                    if (sheetsResponse.ok) {
-                        const sheetsData = await sheetsResponse.json();
-                        const sheets = sheetsData.sheets || [];
-                        
-                        console.log(`📑 Encontradas ${sheets.length} hoja(s) en el documento:`);
-                        sheets.forEach(sheet => {
-                            console.log(`   • "${sheet.properties.title}" (index: ${sheet.properties.index})`);
-                        });
-                        
-                        // Ordenar hojas por prioridad (más reciente primero)
-                        const sortedSheets = smartSortSheets(sheets);
-                        
-                        console.log('📊 Orden de prioridad de hojas (más reciente/relevante primero):');
-                        sortedSheets.forEach((sheet, i) => {
-                            console.log(`   ${i + 1}. "${sheet.properties.title}"`);
-                        });
-                        
-                        // Exportar todas las hojas relevantes (máximo 3 para evitar sobrecarga)
-                        const sheetsToExport = sortedSheets.slice(0, 3);
-                        const sheetContents = [];
-                        
-                        for (const sheet of sheetsToExport) {
-                            const sheetTitle = sheet.properties.title;
-                            console.log(`📥 Exportando hoja: "${sheetTitle}"...`);
-                            
-                            // Exportar hoja específica usando gid
-                            const gid = sheet.properties.sheetId;
-                            const sheetCsvUrl = `https://docs.google.com/spreadsheets/d/${fileId}/export?format=csv&gid=${gid}`;
-                            
-                            const sheetResponse = await fetch(sheetCsvUrl, {
-                                headers: {
-                                    'Authorization': `Bearer ${accessToken}`
-                                }
-                            });
-                            
-                            if (sheetResponse.ok) {
-                                const sheetContent = await sheetResponse.text();
-                                console.log(`✅ Hoja "${sheetTitle}" exportada: ${sheetContent.length} caracteres`);
-                                
-                                sheetContents.push({
-                                    title: sheetTitle,
-                                    content: sheetContent,
-                                    index: sheet.properties.index
-                                });
-                            } else {
-                                console.warn(`⚠️ No se pudo exportar hoja "${sheetTitle}": ${sheetResponse.status}`);
+                    } catch (csvError) {
+                        console.warn('⚠️ Error en estrategia CSV:', csvError.message);
+                        csvAssessment = { quality: 'failed', recommendation: 'ocr', reason: `Error en CSV: ${csvError.message}` };
+                    }
+
+                    // DECISIÓN INTELIGENTE: Usar recomendación del análisis de calidad
+                    if (csvAssessment.recommendation === 'csv' && csvContent) {
+                        console.log('✅ Usando estrategia CSV según análisis inteligente');
+                        content = csvContent;
+
+                        // Agregar análisis avanzado para CSVs aceptables
+                        if (csvAssessment.quality === 'acceptable') {
+                            const advancedParse = parseCSVAdvanced(content);
+                            if (advancedParse.columns && advancedParse.columns.length > 0) {
+                                console.log('🔬 Aplicando análisis avanzado a CSV aceptable...');
+                                // Aquí podríamos enriquecer el content con metadatos del análisis
                             }
-                        }
-                        
-                        // Combinar contenido de todas las hojas con separadores claros
-                        if (sheetContents.length > 0) {
-                            content = `=== GOOGLE SHEETS: ${fileName} ===\n`;
-                            content += `Total de hojas en el documento: ${sheets.length}\n`;
-                            content += `Hojas incluidas en este análisis: ${sheetContents.length}\n\n`;
-                            
-                            sheetContents.forEach((sheet, index) => {
-                                content += `\n${'='.repeat(80)}\n`;
-                                content += `HOJA ${index + 1}: "${sheet.title}"\n`;
-                                content += `${'='.repeat(80)}\n\n`;
-                                content += sheet.content;
-                                content += '\n\n';
-                            });
-                            
-                            console.log(`✅ Contenido combinado de ${sheetContents.length} hoja(s): ${content.length} caracteres totales`);
-                        } else {
-                            throw new Error('No se pudo exportar ninguna hoja del documento');
                         }
                     } else {
-                        // Fallback: Si Sheets API falla, usar exportación CSV simple
-                        console.warn('⚠️ Sheets API no disponible, usando exportación CSV simple (solo primera hoja)');
-                        
-                        const csvExportUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
-                        const csvResponse = await fetch(csvExportUrl, {
-                            headers: {
-                                'Authorization': `Bearer ${accessToken}`
+                        console.log('🔄 Usando estrategia OCR según análisis inteligente...');
+
+                        try {
+                            // ESTRATEGIA 2: OCR como método recomendado
+                            const ocrResult = await tryOCRFallback(fileId, fileName);
+
+                            if (ocrResult && ocrResult.content) {
+                                content = ocrResult.content;
+                                console.log('✅ Estrategia OCR exitosa');
+
+                                // Log detallado de por qué se usó OCR
+                                if (csvAssessment.quality !== 'failed') {
+                                    console.log(`📊 OCR usado en lugar de CSV (${csvAssessment.quality}): ${csvAssessment.reason}`);
+                                }
+                            } else {
+                                // Si OCR también falla, usar CSV como último recurso
+                                console.warn('⚠️ OCR falló, usando CSV como último recurso');
+                                content = csvContent || `ERROR: No se pudo procesar el documento ${fileName} con ninguno de los métodos disponibles.`;
                             }
-                        });
-                        
-                        if (csvResponse.ok) {
-                            content = await csvResponse.text();
-                            content = `NOTA: Solo se pudo exportar la primera hoja del documento.\nNombre del archivo: ${fileName}\n\n${content}`;
-                            console.log(`Contenido CSV leído (fallback): ${content.length} caracteres`);
-                        } else {
-                            throw new Error(`Error al exportar CSV: ${csvResponse.status}`);
+                        } catch (ocrError) {
+                            console.error('❌ Error en estrategia OCR:', ocrError);
+
+                            // Último recurso: usar CSV aunque el análisis recomendara OCR
+                            if (csvContent) {
+                                console.warn('⚠️ OCR falló, usando CSV como último recurso a pesar de la recomendación');
+                                content = csvContent;
+                            } else {
+                                content = `ERROR: No se pudo procesar el documento ${fileName}. OCR falló y no hay CSV disponible.`;
+                            }
                         }
                     }
                 } else {

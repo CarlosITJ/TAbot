@@ -10,6 +10,9 @@ Un chatbot web simple y elegante creado con HTML, CSS y JavaScript vanilla, con 
 - 📊 **Análisis Inteligente de Excel** - Columnas Status, Priority, Category
 - 📄 **Análisis Estructural de Documentos** - Encabezados, secciones, tablas
 - 📕 **Procesamiento Multi-Página PDF** - Análisis por página con estructura
+- 📷 **OCR Avanzado** - Reconocimiento óptico de caracteres para layouts complejos
+- 🔄 **Estrategia Dual Inteligente** - CSV rápido vs OCR para máxima compatibilidad
+- 🎯 **Reconstrucción Visual de Tablas** - Merged cells, formatos complejos
 - 📁 Integración completa con Google Drive
 - 🔍 Búsqueda inteligente y selección de documentos relevantes (hasta 15 docs)
 - 💡 Respuestas sintéticas de múltiples documentos
@@ -95,6 +98,53 @@ Para aprovechar el **soporte multi-hoja completo** de Google Sheets, necesitas:
    - O crea archivos separados para cada hoja importante
 
 **Nota**: La aplicación ahora solicita automáticamente el scope de Google Sheets API cuando configuras OAuth 2.0.
+
+## 📷 OCR Avanzado y Estrategia Dual
+
+### ¿Por qué OCR?
+
+Cuando Google Sheets API no está disponible o los documentos tienen layouts complejos con:
+- ✅ **Celdas fusionadas** (merged cells)
+- ✅ **Formato condicional** (colores, estilos)
+- ✅ **Encabezados complejos** (múltiples niveles)
+- ✅ **Tablas irregulares** (no cuadradas)
+- ✅ **Imágenes incrustadas** en celdas
+
+La exportación CSV pierde toda esta información visual. **OCR permite reconstruir la estructura visual**.
+
+### Estrategia Dual Inteligente
+
+La aplicación usa un **sistema inteligente** que analiza automáticamente la calidad del CSV:
+
+```
+📊 CSV Analysis → 🤖 Smart Decision → 🎯 Best Processing Method
+
+CSV Quality Check:
+├── 📈 Data Density (>70% = Good)
+├── 📏 Row Consistency (<2 variance = Good)
+├── 🔍 Formatting Issues (0 = Good)
+└── 📋 Column Count (≥3 = Good)
+
+Decision Logic:
+├── CSV "Good" → 🚀 Direct CSV Processing (Fast)
+├── CSV "Acceptable" → 🔬 CSV + Advanced Analysis
+└── CSV "Poor/Irregular" → 📷 OCR Fallback (Preserves Layout)
+```
+
+### Capacidades OCR
+
+- **📄 PDF Processing**: Renderiza páginas como imágenes y extrae texto
+- **🖼️ Image Support**: Procesa imágenes con texto directamente
+- **📊 Table Reconstruction**: Detecta y reconstruye tablas desde layouts visuales
+- **🎨 Visual Analysis**: Identifica bordes, alineaciones, encabezados
+- **🔤 Multi-language**: Soporte español + inglés con alta precisión
+
+### Rendimiento Optimizado
+
+- **⚡ Smart Switching**: Solo usa OCR cuando es necesario
+- **💾 Caching**: Resultados OCR se almacenan localmente
+- **🔄 Fallback Chain**: CSV → OCR → Error handling
+- **📏 Limits**: Máximo 10 páginas por PDF para rendimiento
 
 ## 🔍 Arquitectura de Análisis Avanzado
 
