@@ -813,12 +813,19 @@ function generateAnalysisSummary(structure) {
 
     let summary = `CSV analizado: ${structure.totalRows} filas, ${columns.length} columnas.\n\n`;
 
-    // Listar TODAS las columnas disponibles en el documento
-    summary += 'COLUMNAS DISPONIBLES:\n';
+    // Listar TODAS las columnas disponibles en el documento con ejemplos
+    summary += 'COLUMNAS DISPONIBLES EN EL DOCUMENTO:\n';
     columns.forEach((col, index) => {
-        summary += `${index + 1}. ${col.name}`;
+        summary += `${index + 1}. "${col.name}"`;
         if (col.type) {
-            summary += ` (tipo: ${col.type})`;
+            summary += ` [tipo: ${col.type}]`;
+        }
+        // Agregar ejemplos de valores para claridad
+        if (col.sampleValues && col.sampleValues.length > 0) {
+            const samples = col.sampleValues.slice(0, 3).filter(v => v && v.trim()).join('", "');
+            if (samples) {
+                summary += ` - Ejemplos: "${samples}"`;
+            }
         }
         summary += '\n';
     });
@@ -831,11 +838,13 @@ function generateAnalysisSummary(structure) {
     );
     
     if (categoricalColumns.length > 0) {
-        summary += '\nVALORES ÚNICOS EN COLUMNAS CATEGÓRICAS:\n';
+        summary += '\n=== VALORES ÚNICOS POR COLUMNA ===\n';
+        summary += '(Para filtrar o buscar datos específicos)\n\n';
         categoricalColumns.forEach(col => {
             if (col.values && col.values.length > 0) {
-                const valuesList = col.values.slice(0, 30).join(', ');
-                summary += `- ${col.name} (${col.uniqueCount} valores únicos): ${valuesList}${col.values.length > 30 ? '...' : ''}\n`;
+                summary += `Columna "${col.name}" contiene ${col.uniqueCount} valores únicos:\n`;
+                const valuesList = col.values.slice(0, 30).map(v => `  • ${v}`).join('\n');
+                summary += `${valuesList}${col.values.length > 30 ? '\n  • ...' : ''}\n\n`;
             }
         });
     }
@@ -3220,6 +3229,16 @@ INSTRUCCIONES IMPORTANTES:
 - Mantén un tono profesional pero conversacional
 - Si no puedes responder completamente, sugiere qué información adicional sería útil
 
+IMPORTANTE - MANEJO DE HOJAS DE CÁLCULO:
+- Cuando analices hojas de cálculo (CSV/Excel/Google Sheets), presta MUCHA ATENCIÓN a los nombres de las columnas
+- Cada columna tiene un nombre específico entre comillas (ej: "ROLE", "Level", "Status")
+- NO confundas columnas diferentes aunque tengan valores similares
+- Ejemplo: La columna "ROLE" contiene roles de trabajo (ej: "IT Director", "AI/ML Engineer")
+- Ejemplo: La columna "Level" contiene niveles de seniority (ej: "Director", "Mid", "Sr")
+- Cuando el usuario pregunte por "roles", busca en la columna llamada "ROLE" o similar
+- Cuando el usuario pregunte por "nivel" o "seniority", busca en la columna "Level" o similar
+- Lee los ejemplos de valores proporcionados para cada columna para entender su contenido
+
 ESTILO DE RESPUESTAS:
 - Directo: "Según el documento, hay 15 roles abiertos..."
 - Informativo: Resume los datos clave sin detalles técnicos
@@ -3230,7 +3249,8 @@ REGLAS DE CONTENIDO:
 1. SOLO responde con información explícitamente contenida en los documentos
 2. Si hay datos numéricos, preséntalos claramente
 3. Si hay información parcial, indica que es parcial
-4. NO inventes datos que no estén en los documentos`
+4. NO inventes datos que no estén en los documentos
+5. Cuando respondas sobre datos de hojas de cálculo, especifica la columna correcta`
             },
             {
                 role: 'user',
