@@ -475,8 +475,12 @@ function parseCSVAdvanced(csvContent) {
     try {
         console.log('🔍 Iniciando análisis avanzado de CSV...');
 
-        // Dividir en líneas
-        const lines = csvContent.split('\n').filter(line => line.trim());
+        // Dividir en líneas y filtrar líneas vacías
+        const lines = csvContent.split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        console.log(`📊 CSV tiene ${lines.length} líneas después de filtrar`);
 
         if (lines.length < 2) {
             console.log('⚠️ CSV tiene menos de 2 líneas, usando análisis básico');
@@ -488,14 +492,37 @@ function parseCSVAdvanced(csvContent) {
             };
         }
 
+        // Intentar detectar si es realmente un CSV con datos tabulares
+        const firstLine = parseCSVLine(lines[0]);
+        const secondLine = parseCSVLine(lines[1]);
+
+        console.log(`📋 Primera línea tiene ${firstLine.length} columnas`);
+        console.log(`📋 Segunda línea tiene ${secondLine.length} columnas`);
+
+        // Verificar si parece un CSV válido (múltiples columnas)
+        if (firstLine.length < 2) {
+            console.log('⚠️ CSV parece no tener múltiples columnas, podría ser texto plano');
+            return {
+                content: csvContent,
+                structure: null,
+                columns: [],
+                analysis: 'Contenido no parece ser datos tabulares CSV'
+            };
+        }
+
         // Extraer headers
-        const headers = parseCSVLine(lines[0]);
+        const headers = firstLine;
 
         // Extraer datos de muestra (primeras 100 líneas máximo)
         const sampleData = lines.slice(1, Math.min(lines.length, 101)).map(line => parseCSVLine(line));
 
+        // Filtrar filas que no coincidan con el número de columnas esperado
+        const validSampleData = sampleData.filter(row => row.length >= headers.length * 0.5); // Al menos 50% de columnas
+
+        console.log(`📊 Datos válidos encontrados: ${validSampleData.length} filas de ${sampleData.length}`);
+
         // Analizar estructura
-        const structure = analyzeCSVStructure(headers, sampleData);
+        const structure = analyzeCSVStructure(headers, validSampleData);
 
         console.log(`✅ Análisis completado: ${structure.columns.length} columnas detectadas`);
 
@@ -1564,10 +1591,29 @@ async function readFileContent(fileId, mimeType) {
                     let content = await response.text();
                     console.log(`Contenido leído: ${content.length} caracteres`);
 
+                    // Debug: Mostrar primeras líneas del contenido para diagnóstico
+                    const lines = content.split('\n').slice(0, 5);
+                    console.log('📊 Primeras líneas del contenido exportado:');
+                    lines.forEach((line, i) => {
+                        console.log(`  Línea ${i + 1}: "${line.substring(0, 100)}${line.length > 100 ? '...' : ''}"`);
+                    });
+
                     // Aplicar análisis avanzado según el tipo de documento
                     let advancedParse = null;
 
-                    if (mimeType.includes('document')) {
+                    if (mimeType.includes('spreadsheet')) {
+                        // Google Sheets - análisis avanzado de datos CSV
+                        console.log('📊 Aplicando análisis avanzado a Google Sheets...');
+                        advancedParse = parseCSVAdvanced(content);
+
+                        // Crear contenido enriquecido con metadatos
+                        if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible') {
+                            content = `=== ANÁLISIS AVANZADO DE LA HOJA DE CÁLCULO ===\n${advancedParse.analysis}\n\n=== CONTENIDO ORIGINAL ===\n${content}`;
+                        }
+
+                        console.log(`✅ Google Sheets procesado con análisis avanzado: ${advancedParse.columns?.length || 0} columnas detectadas`);
+                    }
+                    else if (mimeType.includes('document')) {
                         // Google Docs - análisis avanzado de estructura
                         console.log('📄 Aplicando análisis avanzado a Google Docs...');
                         advancedParse = parseGoogleDocsAdvanced(content);
@@ -1598,9 +1644,14 @@ async function readFileContent(fileId, mimeType) {
                         name: `Documento ${fileId.substring(0, 12)}...`
                     };
 
-                    if (advancedParse && advancedParse.structure) {
-                        cacheData.structure = advancedParse.structure;
-                        cacheData.analysis = advancedParse.analysis;
+                    // Incluir estructura para todos los tipos de análisis avanzado
+                    if (advancedParse) {
+                        if (advancedParse.structure) {
+                            cacheData.structure = advancedParse.structure;
+                        }
+                        if (advancedParse.analysis) {
+                            cacheData.analysis = advancedParse.analysis;
+                        }
                     }
 
                     saveDocumentToCache(fileId, cacheData);
