@@ -251,10 +251,13 @@ function addMessage(message, isUser) {
 // Función para enviar mensaje (ACTUALIZADA PARA ASYNC)
 async function sendMessage() {
     const message = userInput.value.trim();
-    
+
     if (message === '') {
         return;
     }
+
+    // Guardar el mensaje del usuario para análisis de contexto
+    window.lastUserMessage = message;
     
     // Agregar mensaje del usuario
     addMessage(message, true);
@@ -2056,8 +2059,33 @@ async function tryCSVExportFirst(fileId, fileName) {
             console.log(`   ${i + 1}. "${sheet.properties.title}"`);
         });
 
-        // Exportar todas las hojas relevantes (máximo 3 para evitar sobrecarga)
-        const sheetsToExport = sortedSheets.slice(0, 3);
+        // Exportar hojas con estrategia inteligente: priorizar la más reciente
+        // Para preguntas sobre estado actual, usar solo la hoja más reciente
+        let sheetsToExport;
+        const userQuestion = (window.lastUserMessage || '').toLowerCase();
+
+        // Detectar si es una pregunta sobre estado actual/vacantes actuales
+        const isCurrentStatusQuery = (
+            userQuestion.includes('vacantes') ||
+            userQuestion.includes('trabajo') ||
+            userQuestion.includes('empleo') ||
+            userQuestion.includes('opening') ||
+            userQuestion.includes('job') ||
+            userQuestion.includes('actual') ||
+            userQuestion.includes('current') ||
+            userQuestion.includes('disponible') ||
+            userQuestion.includes('available')
+        );
+
+        if (isCurrentStatusQuery && sortedSheets.length > 0) {
+            // Para preguntas de estado actual: usar SOLO la hoja más reciente
+            sheetsToExport = sortedSheets.slice(0, 1);
+            console.log('🎯 Pregunta sobre estado actual detectada - usando SOLO la hoja más reciente');
+        } else {
+            // Para otras preguntas: usar hasta 3 hojas para contexto completo
+            sheetsToExport = sortedSheets.slice(0, 3);
+        }
+
         const sheetContents = [];
 
         for (const sheet of sheetsToExport) {

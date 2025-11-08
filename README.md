@@ -114,7 +114,7 @@ La exportación CSV pierde toda esta información visual. **OCR permite reconstr
 
 ### Estrategia Dual Inteligente
 
-La aplicación usa un **sistema inteligente** que analiza automáticamente la calidad del CSV:
+La aplicación usa un **sistema inteligente** que analiza automáticamente la calidad del CSV y el contexto de la pregunta:
 
 ```
 📊 CSV Analysis → 🤖 Smart Decision → 🎯 Best Processing Method
@@ -125,11 +125,27 @@ CSV Quality Check:
 ├── 🔍 Formatting Issues (0 = Good)
 └── 📋 Column Count (≥3 = Good)
 
+Context-Aware Selection:
+├── ❓ "¿Vacantes actuales?" → 🎯 SOLO hoja más reciente
+├── ❓ "¿Historial completo?" → 📚 Hasta 3 hojas ordenadas
+└── ❓ "Pregunta general" → 📚 Contexto múltiple
+
 Decision Logic:
 ├── CSV "Good" → 🚀 Direct CSV Processing (Fast)
 ├── CSV "Acceptable" → 🔬 CSV + Advanced Analysis
 └── CSV "Poor/Irregular" → 📷 OCR Fallback (Preserves Layout)
 ```
+
+### 🎯 Priorización Inteligente por Contexto
+
+**Para preguntas sobre estado actual** (vacantes, empleos, disponibilidad):
+- ✅ **Usa SOLO la hoja más reciente**
+- ✅ **Ignora datos antiguos** que puedan mostrar "vacantes" cuando ya no existen
+- ✅ **Responde basado en información más actualizada**
+
+**Para preguntas históricas o análisis completos**:
+- ✅ **Combina múltiples hojas** para contexto completo
+- ✅ **Mantiene timeline** de cambios a lo largo del tiempo
 
 ### Capacidades OCR
 
