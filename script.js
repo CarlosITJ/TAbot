@@ -57,8 +57,8 @@ let documentMetadata = []; // Metadata ligera de TODOS los documentos (título +
 let driveFolderId = null;
 
 // Constantes de configuración
-const MAX_DOC_PREVIEW_LENGTH = 100000; // Caracteres máximos por documento enviados a la IA (100k chars ≈ 25k tokens)
-const TOTAL_CONTEXT_BUDGET = 400000; // Presupuesto total de caracteres para todos los documentos (~100k tokens, bien dentro del límite de 2M de Grok-4)
+const MAX_DOC_PREVIEW_LENGTH = 1000000; // Caracteres máximos por documento enviados a la IA (1M chars ≈ 250k tokens) - AUMENTADO para Google Sheets grandes
+const TOTAL_CONTEXT_BUDGET = 5000000; // Presupuesto total de caracteres para todos los documentos (5M chars ≈ 1.25M tokens, aprovechando contexto de 2M de Grok-4)
 const SEARCH_CONTEXT_LENGTH = 200; // Caracteres de contexto antes/después de una coincidencia (aumentado para mejor contexto)
 const MAX_DOCUMENTS_RECOMMENDED = 50; // Número recomendado de documentos a cargar simultáneamente
 const MAX_DOCUMENTS_HARD_LIMIT = 100; // Límite máximo absoluto de documentos
@@ -2029,7 +2029,7 @@ function inferColumnType(values) {
 // ========================================
 
 // Función para intentar exportación CSV primero (estrategia primaria)
-async function tryCSVExportFirst(fileId, fileName) {
+async function tryCSVExportFirst(fileId, fileName, accessToken) {
     console.log('📊 Ejecutando estrategia CSV primaria...');
 
     // Usar Google Sheets API para obtener todas las hojas
@@ -2059,31 +2059,14 @@ async function tryCSVExportFirst(fileId, fileName) {
             console.log(`   ${i + 1}. "${sheet.properties.title}"`);
         });
 
-        // Exportar hojas con estrategia inteligente: priorizar la más reciente
-        // Para preguntas sobre estado actual, usar solo la hoja más reciente
-        let sheetsToExport;
-        const userQuestion = (window.lastUserMessage || '').toLowerCase();
-
-        // Detectar si es una pregunta sobre estado actual/vacantes actuales
-        const isCurrentStatusQuery = (
-            userQuestion.includes('vacantes') ||
-            userQuestion.includes('trabajo') ||
-            userQuestion.includes('empleo') ||
-            userQuestion.includes('opening') ||
-            userQuestion.includes('job') ||
-            userQuestion.includes('actual') ||
-            userQuestion.includes('current') ||
-            userQuestion.includes('disponible') ||
-            userQuestion.includes('available')
-        );
-
-        if (isCurrentStatusQuery && sortedSheets.length > 0) {
-            // Para preguntas de estado actual: usar SOLO la hoja más reciente
-            sheetsToExport = sortedSheets.slice(0, 1);
-            console.log('🎯 Pregunta sobre estado actual detectada - usando SOLO la hoja más reciente');
-        } else {
-            // Para otras preguntas: usar hasta 3 hojas para contexto completo
-            sheetsToExport = sortedSheets.slice(0, 3);
+        // Exportar TODAS las hojas del documento (sin límites)
+        // Esto asegura que tengamos toda la información disponible
+        let sheetsToExport = sortedSheets;
+        console.log(`📊 Exportando TODAS las ${sheetsToExport.length} hoja(s) del documento (lectura completa)`);
+        
+        // Si hay demasiadas hojas (más de 10), advertir pero continuar
+        if (sheetsToExport.length > 10) {
+            console.warn(`⚠️ El documento tiene ${sheetsToExport.length} hojas. La carga puede tardar un poco...`);
         }
 
         const sheetContents = [];
@@ -2804,9 +2787,9 @@ async function readFileContent(fileId, mimeType) {
             try {
                 let content = '';
                 
-                // Para Google Sheets, implementar estrategia dual: CSV → OCR
+                // Para Google Sheets, usar SIEMPRE Google Sheets API directamente (CSV)
                 if (mimeType.includes('spreadsheet')) {
-                    console.log('📊 Procesando Google Sheets con estrategia dual (CSV → OCR)...');
+                    console.log('📊 Procesando Google Sheets con Google Sheets API (CSV directo, SIN OCR)...');
 
                     // Obtener metadata del archivo
                     const metadataUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name`;
@@ -2820,69 +2803,23 @@ async function readFileContent(fileId, mimeType) {
                     const fileName = metadata.name || 'Google Sheet';
                     console.log(`📋 Nombre del archivo: ${fileName}`);
 
-                    let csvContent = null;
-                    let csvAssessment = { quality: 'unknown', recommendation: 'ocr', reason: 'Pendiente evaluación' };
-
-                    // ESTRATEGIA 1: Intentar CSV primero (Sheets API)
+                    // ESTRATEGIA ÚNICA: Usar Google Sheets API directamente
                     try {
-                        console.log('📊 Intentando estrategia CSV primero...');
-                        const csvResult = await tryCSVExportFirst(fileId, fileName);
+                        console.log('📊 Usando Google Sheets API directamente...');
+                        const csvResult = await tryCSVExportFirst(fileId, fileName, accessToken);
 
                         if (csvResult && csvResult.content) {
-                            csvContent = csvResult.content;
-                            csvAssessment = assessCSVQuality(csvResult.content);
-                            console.log(`📊 Calidad CSV evaluada: ${csvAssessment.quality} - Recomendación: ${csvAssessment.recommendation}`);
-                            console.log(`📊 Razón: ${csvAssessment.reason}`);
+                            content = csvResult.content;
+                            console.log(`✅ Google Sheets API exitosa: ${content.length} caracteres`);
+                            console.log(`📊 Hojas procesadas: ${csvResult.sheetsProcessed}/${csvResult.totalSheets}`);
+                            console.log(`🎯 Método: Lectura directa con Google Sheets API (SIN OCR ni evaluación de calidad)`);
+                        } else {
+                            throw new Error('Google Sheets API no devolvió contenido');
                         }
                     } catch (csvError) {
-                        console.warn('⚠️ Error en estrategia CSV:', csvError.message);
-                        csvAssessment = { quality: 'failed', recommendation: 'ocr', reason: `Error en CSV: ${csvError.message}` };
-                    }
-
-                    // DECISIÓN INTELIGENTE: Usar recomendación del análisis de calidad
-                    if (csvAssessment.recommendation === 'csv' && csvContent) {
-                        console.log('✅ Usando estrategia CSV según análisis inteligente');
-                        content = csvContent;
-
-                        // Agregar análisis avanzado para CSVs aceptables
-                        if (csvAssessment.quality === 'acceptable') {
-                            const advancedParse = parseCSVAdvanced(content);
-                            if (advancedParse.columns && advancedParse.columns.length > 0) {
-                                console.log('🔬 Aplicando análisis avanzado a CSV aceptable...');
-                                // Aquí podríamos enriquecer el content con metadatos del análisis
-                            }
-                        }
-                    } else {
-                        console.log('🔄 Usando estrategia OCR según análisis inteligente...');
-
-                        try {
-                            // ESTRATEGIA 2: OCR como método recomendado
-                            const ocrResult = await tryOCRFallback(fileId, fileName);
-
-                            if (ocrResult && ocrResult.content) {
-                                content = ocrResult.content;
-                                console.log('✅ Estrategia OCR exitosa');
-
-                                // Log detallado de por qué se usó OCR
-                                if (csvAssessment.quality !== 'failed') {
-                                    console.log(`📊 OCR usado en lugar de CSV (${csvAssessment.quality}): ${csvAssessment.reason}`);
-                                }
-                            } else {
-                                // Si OCR también falla, usar CSV como último recurso
-                                console.warn('⚠️ OCR falló, usando CSV como último recurso');
-                                content = csvContent || `ERROR: No se pudo procesar el documento ${fileName} con ninguno de los métodos disponibles.`;
-                            }
-                        } catch (ocrError) {
-                            console.error('❌ Error en estrategia OCR:', ocrError);
-
-                            // Último recurso: usar CSV aunque el análisis recomendara OCR
-                            if (csvContent) {
-                                console.warn('⚠️ OCR falló, usando CSV como último recurso a pesar de la recomendación');
-                                content = csvContent;
-                            } else {
-                                content = `ERROR: No se pudo procesar el documento ${fileName}. OCR falló y no hay CSV disponible.`;
-                            }
-                        }
+                        console.error('❌ Error en Google Sheets API:', csvError.message);
+                        // Si falla Google Sheets API, lanzar error claro
+                        throw new Error(`No se pudo leer el Google Sheet "${fileName}". Asegúrate de que:\n1. Google Sheets API está habilitada en Google Cloud Console\n2. Tienes permisos de lectura en el documento\n3. El documento existe y es accesible\n\nError técnico: ${csvError.message}`);
                     }
                 } else {
                     // Para Docs y Slides, usar exportación normal
@@ -4257,94 +4194,194 @@ async function analyzeDocumentsWithAI(userMessage) {
     }
     
     try {
-        // Construir contexto de los documentos con gestión inteligente de presupuesto
-        let context = "Tengo acceso a los siguientes documentos:\n\n";
-
-        // Calcular presupuesto por documento de forma equitativa
-        const budgetPerDoc = Math.floor(TOTAL_CONTEXT_BUDGET / driveDocuments.length);
-        const actualBudgetPerDoc = Math.min(budgetPerDoc, MAX_DOC_PREVIEW_LENGTH);
-
+        // ESTRATEGIA MEJORADA: Detectar documentos relevantes y enviarlos COMPLETOS
+        // Si detectamos palabras clave de un documento específico, enviamos SOLO ese completo
+        const userMessageLower = userMessage.toLowerCase();
+        
+        // Detectar si el usuario pregunta por un documento específico
+        let relevantDocs = [];
+        const keywords = ['pipeline', 'candidate', 'q4', 'vacantes', 'roles', 'interview', 'onboarding', 'schedule'];
+        
+        // Buscar documentos relevantes basados en keywords
+        for (const doc of driveDocuments) {
+            const docNameLower = doc.name.toLowerCase();
+            const isRelevant = keywords.some(keyword => 
+                userMessageLower.includes(keyword) && docNameLower.includes(keyword)
+            );
+            
+            if (isRelevant) {
+                relevantDocs.push(doc);
+            }
+        }
+        
+        // Si no encontramos documentos específicos relevantes, usar todos pero priorizar "Pipeline"
+        if (relevantDocs.length === 0) {
+            // Priorizar documentos que parecen importantes basándonos en el nombre
+            const priorityKeywords = ['pipeline', 'main', 'principal', 'candidate'];
+            relevantDocs = driveDocuments.filter(doc => 
+                priorityKeywords.some(kw => doc.name.toLowerCase().includes(kw))
+            );
+            
+            // Si no hay documentos prioritarios, usar los primeros 3
+            if (relevantDocs.length === 0) {
+                relevantDocs = driveDocuments.slice(0, 3);
+            }
+        }
+        
+        // Limitar a máximo 5 documentos relevantes para no exceder límites
+        relevantDocs = relevantDocs.slice(0, 5);
+        
+        console.log(`🎯 Documentos relevantes seleccionados: ${relevantDocs.length} de ${driveDocuments.length}`);
+        console.log(`📄 Documentos: ${relevantDocs.map(d => d.name).join(', ')}`);
+        
+        // Construir contexto con documentos relevantes COMPLETOS (sin truncar)
+        let context = `Tengo acceso a los siguientes documentos relevantes para tu pregunta:\n\n`;
         let totalCharsUsed = 0;
-
-        driveDocuments.forEach((doc, index) => {
-            // Usar el presupuesto calculado, pero no más que el contenido disponible
-            const charsToUse = Math.min(actualBudgetPerDoc, doc.content.length);
-            const preview = doc.content.substring(0, charsToUse);
-
+        
+        relevantDocs.forEach((doc, index) => {
+            // ENVIAR DOCUMENTO COMPLETO sin truncar (hasta el límite por documento)
+            const charsToUse = Math.min(MAX_DOC_PREVIEW_LENGTH, doc.content.length);
+            const content = doc.content.substring(0, charsToUse);
+            
             context += `Documento ${index + 1}: "${doc.name}"\n`;
             context += `Tipo MIME: ${doc.mimeType}\n`;
-            context += `Tamaño total: ${doc.content.length} caracteres\n`;
+            context += `Tamaño: ${doc.content.length.toLocaleString()} caracteres ${charsToUse < doc.content.length ? `(enviando primeros ${charsToUse.toLocaleString()})` : '(completo)'}\n`;
 
-            // Agregar información de estructura de forma discreta (solo para que la IA la use)
-            if (doc.structure) {
-                // Información de columnas para Excel (útil para consultas sobre estados, etc.)
-                if (doc.structure.columns) {
-                    const categoricalColumns = doc.structure.columns.filter(col =>
-                        ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
-                    );
-                    if (categoricalColumns.length > 0) {
-                        context += `Información de columnas: `;
-                        categoricalColumns.forEach(col => {
-                            const values = Array.from(col.uniqueValues).slice(0, 5).join(', ');
-                            context += `${col.name}: ${values}${col.uniqueCount > 5 ? ' (y más)' : ''}; `;
-                        });
-                        context += '\n';
-                    }
+            // Agregar información de estructura
+            if (doc.structure && doc.structure.columns) {
+                const categoricalColumns = doc.structure.columns.filter(col =>
+                    ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
+                );
+                if (categoricalColumns.length > 0) {
+                    context += `Columnas detectadas: `;
+                    categoricalColumns.forEach(col => {
+                        const values = Array.from(col.uniqueValues).slice(0, 5).join(', ');
+                        context += `${col.name}: ${values}${col.uniqueCount > 5 ? ' (y más)' : ''}; `;
+                    });
+                    context += '\n';
                 }
             }
 
-            context += `Contenido: ${preview}${doc.content.length > charsToUse ? '...\n[Contenido truncado por límite de contexto]' : ''}\n\n`;
-
+            context += `\n=== CONTENIDO COMPLETO ===\n${content}\n=== FIN DEL DOCUMENTO ===\n\n`;
+            
             totalCharsUsed += charsToUse;
         });
 
-        console.log(`📊 Contexto construido: ${totalCharsUsed} caracteres de ${TOTAL_CONTEXT_BUDGET} disponibles (${driveDocuments.length} documentos)`);
+        console.log(`📊 Contexto construido: ${totalCharsUsed.toLocaleString()} caracteres enviados a Grok`);
+        console.log(`✅ Enviando ${relevantDocs.length} documento(s) COMPLETO(S) (sin truncamiento interno)`);
         
-        // Crear mensajes para xAI
+        // Crear mensajes para xAI (con historial de conversación)
         const messages = [
             {
                 role: 'system',
-                content: `Eres un asistente inteligente especializado en analizar documentos con respuestas claras y útiles.
+                content: `Eres un asistente experto en análisis de datos de reclutamiento y recursos humanos.
 
-INSTRUCCIONES IMPORTANTES:
-- Proporciona respuestas DIRECTAS y CONCISAS a las preguntas del usuario
-- USA la información estructural de los documentos (columnas detectadas, etc.) para dar respuestas inteligentes
-- NO menciones detalles técnicos internos como "columnas detectadas", "análisis avanzado", etc.
-- NO expliques cómo analizaste los documentos - solo da la respuesta
-- Si la información está incompleta, indica claramente qué tienes y qué falta
-- Mantén un tono profesional pero conversacional
-- Si no puedes responder completamente, sugiere qué información adicional sería útil
+IMPORTANTE: MANTÉN CONSISTENCIA CON TUS RESPUESTAS ANTERIORES
+• Si ya respondiste una pregunta similar, usa los MISMOS números y criterios
+• Si el usuario pregunta "cuántas vacantes hay abiertas" varias veces, el número debe ser EL MISMO
+• Define claramente qué significa "vacante abierta" y usa ESA definición siempre
+• Criterio estándar: Vacante abierta = Status "OPEN" o "Still Open" (NO incluir "Pipeline", "Hold", etc.)
 
-IMPORTANTE - MANEJO DE HOJAS DE CÁLCULO:
-- Cuando analices hojas de cálculo (CSV/Excel/Google Sheets), presta MUCHA ATENCIÓN a los nombres de las columnas
-- Cada columna tiene un nombre específico entre comillas (ej: "ROLE", "Level", "Status")
-- NO confundas columnas diferentes aunque tengan valores similares
-- Ejemplo: La columna "ROLE" contiene roles de trabajo (ej: "IT Director", "AI/ML Engineer")
-- Ejemplo: La columna "Level" contiene niveles de seniority (ej: "Director", "Mid", "Sr")
-- Cuando el usuario pregunte por "roles", busca en la columna llamada "ROLE" o similar
-- Cuando el usuario pregunte por "nivel" o "seniority", busca en la columna "Level" o similar
-- Lee los ejemplos de valores proporcionados para cada columna para entender su contenido
+ATENCIÓN A PREGUNTAS ESPECÍFICAS:
+• Si preguntan por UN cliente específico (ej: "vacantes de Exact Sciences"), responde SOLO con el número de ESE cliente
+• Si preguntan por el total general, usa el número total de TODOS los clientes
+• NO confundas el total general con subtotales de clientes individuales
+• Ejemplo: Si total es 27 y Exact Sciences tiene 15, al preguntar "vacantes de Exact Sciences" responde "15", NO "27"
 
-ESTILO DE RESPUESTAS:
-- Directo: "Según el documento, hay 15 roles abiertos..."
-- Informativo: Resume los datos clave sin detalles técnicos
-- Útil: Proporciona contexto cuando ayude
-- Honesto: Admite limitaciones claramente
+REGLAS DE FILTRADO TEMPORAL:
+• Si el usuario NO especifica un trimestre o fecha (ej: "Q4", "2025", "octubre"), cuenta TODAS las vacantes en TODO el documento
+• SOLO filtra por trimestre/fecha si el usuario lo menciona EXPLÍCITAMENTE
+• "¿Cuántas vacantes hay abiertas?" = TODAS las vacantes (sin filtro de fecha)
+• "¿Cuántas vacantes hay abiertas en Q4?" = SOLO Q4 (con filtro de fecha)
+• Por defecto, NO asumas ningún período de tiempo a menos que se especifique claramente
 
-REGLAS DE CONTENIDO:
-1. SOLO responde con información explícitamente contenida en los documentos
-2. Si hay datos numéricos, preséntalos claramente
-3. Si hay información parcial, indica que es parcial
-4. NO inventes datos que no estén en los documentos
-5. Cuando respondas sobre datos de hojas de cálculo, especifica la columna correcta`
-            },
-            {
-                role: 'user',
-                content: `${context}\n\nPregunta del usuario: ${userMessage}\n\nProporciona una respuesta directa y clara basada únicamente en la información de los documentos.`
+ESTILO DE RESPUESTA POR DEFECTO: **CONCISO Y DIRECTO**
+
+REGLA PRINCIPAL:
+• Por defecto, responde de forma BREVE y AL PUNTO (2-5 líneas máximo)
+• SOLO da detalles extensos si el usuario EXPLÍCITAMENTE pide: "dame detalles", "explícame más", "detallado", "desglose completo", "profundiza", etc.
+
+FORMATO ESTÁNDAR (CONCISO):
+1. Respuesta directa con el dato principal
+2. Desglose breve en 2-3 categorías clave
+3. Máximo 5-7 líneas total
+
+EJEMPLO DE RESPUESTA CONCISA:
+"En Q4 2025 hay 10 roles abiertos:
+• Exact Sciences: 4 posiciones
+• iTJ: 2 posiciones  
+• Otros (Dexcom, Xiltrix, etc.): 4 posiciones
+
+Distribución: 40% Mid, 30% Associate, 30% Sr/Manager."
+
+SOLO si el usuario pide "dame detalles" o similar, entonces:
+- Lista completa de roles
+- Fechas específicas
+- Contexto adicional
+- Comparaciones históricas
+- Análisis profundo
+
+REGLAS ESTRICTAS:
+✅ SÍ hacer:
+- Respuestas CORTAS por defecto (2-5 líneas)
+- Números EXACTOS siempre
+- Desglose en 2-3 categorías principales
+- Ir directo al punto
+- Agrupar datos similares
+
+❌ NO hacer:
+- Respuestas largas sin que lo pidan
+- Párrafos extensos de contexto
+- Listar TODOS los roles uno por uno (solo si lo piden)
+- Explicaciones detalladas sin necesidad
+- Análisis comparativos extensos (solo si lo piden)
+- Múltiples secciones y subsecciones
+
+DETECCIÓN DE SOLICITUD DE DETALLES:
+Si el usuario dice: "dame detalles", "explica más", "profundiza", "desglose completo", "lista todos", "análisis detallado", "quiero saber más" → entonces sí da respuesta extensa.
+
+De lo contrario → respuesta CONCISA.
+
+MANEJO DE HOJAS DE CÁLCULO:
+- Analiza TODO el contenido entre === CONTENIDO COMPLETO ===
+- Cuenta exactamente
+- Pero presenta SOLO lo esencial (a menos que pidan detalles)
+
+RESPONDE EN ESPAÑOL de forma BREVE y PROFESIONAL.`
             }
         ];
         
+        // Agregar historial de conversación (últimas 6 interacciones = 3 preguntas/respuestas)
+        if (conversationHistory.length > 0) {
+            const recentHistory = conversationHistory.slice(-6); // Últimos 3 pares pregunta-respuesta
+            messages.push(...recentHistory);
+        }
+        
+        // Agregar la pregunta actual
+        messages.push({
+            role: 'user',
+            content: `${context}\n\n=== PREGUNTA DEL USUARIO ===\n${userMessage}\n\n=== INSTRUCCIONES ===\nAnaliza TODO el contenido de los documentos (entre === CONTENIDO COMPLETO === y === FIN ===).\n\nRespuesta CONCISA (2-5 líneas) con:\n• Dato principal directo\n• Números exactos\n• Desglose breve en 2-3 categorías clave\n• SIN explicaciones extensas (a menos que el usuario pida "detalles" o "explica más")\n\nCUENTA exactamente, pero PRESENTA de forma BREVE.\n\nSi esta pregunta es similar a una anterior, USA LOS MISMOS NÚMEROS Y CRITERIOS.\n\nIMPORTANTE SOBRE FILTROS:\n• Si el usuario NO menciona un trimestre/fecha específico, cuenta TODAS las filas del documento (sin filtro temporal)\n• SOLO filtra si el usuario dice explícitamente "Q4", "2025", "octubre", etc.\n• "Vacantes abiertas" SIN especificar fecha = TODAS las vacantes con status OPEN/Still Open en TODO el documento`
+        });
+        
         const response = await callXAI(messages);
+        
+        // Guardar en historial (sin el contexto largo de documentos, solo pregunta y respuesta)
+        conversationHistory.push({
+            role: 'user',
+            content: userMessage
+        });
+        conversationHistory.push({
+            role: 'assistant',
+            content: response
+        });
+        
+        // Mantener solo las últimas 10 interacciones (5 pares)
+        if (conversationHistory.length > 10) {
+            conversationHistory = conversationHistory.slice(-10);
+        }
+        
+        console.log(`💬 Historial de conversación: ${conversationHistory.length / 2} intercambios guardados`);
+        
         return response;
         
     } catch (error) {
@@ -4677,6 +4714,10 @@ function signOut() {
     driveDocuments = [];
     documentsList.innerHTML = '';
     
+    // Limpiar historial de conversación
+    conversationHistory = [];
+    console.log('💬 Historial de conversación limpiado por cierre de sesión');
+    
     // Revocar token si es posible
     if (typeof google !== 'undefined' && google.accounts) {
         const token = getAccessToken();
@@ -4772,6 +4813,9 @@ async function connectWithIds() {
 
 // Variable para cancelar carga de documentos
 let cancelDocumentLoad = false;
+
+// Historial de conversación (para mantener contexto entre preguntas)
+let conversationHistory = [];
 
 // Función para cargar documentos desde lista de archivos (con batching y límites)
 async function loadDocumentsFromFiles(files) {
@@ -4943,6 +4987,10 @@ clearConversationButton.addEventListener('click', () => {
 
         // Limpiar conversación guardada
         clearSavedConversation();
+        
+        // Limpiar historial de conversación en memoria
+        conversationHistory = [];
+        console.log('💬 Historial de conversación limpiado');
 
         // Mostrar confirmación
         addMessage('Conversación limpiada. ¡Hola de nuevo! 👋', false);
