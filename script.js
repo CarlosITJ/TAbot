@@ -874,6 +874,397 @@ function generateAnalysisSummary(structure) {
 }
 
 // ========================================
+// PRE-AGGREGATED STATISTICS
+// ========================================
+
+// Función para calcular estadísticas pre-agregadas de un documento CSV
+function calculatePreAggregatedStatistics(csvContent, structure) {
+    try {
+        console.log('📊 Calculando estadísticas pre-agregadas...');
+
+        if (!structure || !structure.columns || structure.columns.length === 0) {
+            console.log('⚠️ Sin estructura válida, saltando estadísticas');
+            return null;
+        }
+
+        // Parsear todas las líneas del CSV
+        const lines = csvContent.split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+
+        if (lines.length < 2) {
+            return null;
+        }
+
+        // Parsear datos (omitir header)
+        const dataRows = lines.slice(1).map(line => parseCSVLine(line));
+
+        const statistics = {
+            totalRows: dataRows.length,
+            columns: {},
+            groupedData: {}
+        };
+
+        // Para cada columna, calcular estadísticas
+        structure.columns.forEach((col, colIndex) => {
+            const columnName = col.name;
+            const values = dataRows.map(row => row[colIndex]).filter(val => val && val.trim());
+
+            statistics.columns[columnName] = {
+                type: col.type,
+                category: col.category,
+                totalValues: values.length,
+                nullCount: dataRows.length - values.length
+            };
+
+            // Para columnas categóricas, calcular distribución
+            if (col.type === 'text' && values.length > 0) {
+                const distribution = {};
+                values.forEach(val => {
+                    const key = val.trim();
+                    distribution[key] = (distribution[key] || 0) + 1;
+                });
+
+                statistics.columns[columnName].distribution = distribution;
+                statistics.columns[columnName].uniqueValues = Object.keys(distribution).length;
+
+                // Agregar a groupedData para acceso rápido
+                statistics.groupedData[columnName] = distribution;
+            }
+
+            // Para columnas numéricas, calcular estadísticas descriptivas
+            if (col.type === 'number') {
+                const numericValues = values
+                    .map(v => parseFloat(v))
+                    .filter(v => !isNaN(v) && isFinite(v));
+
+                if (numericValues.length > 0) {
+                    statistics.columns[columnName].min = Math.min(...numericValues);
+                    statistics.columns[columnName].max = Math.max(...numericValues);
+                    statistics.columns[columnName].sum = numericValues.reduce((a, b) => a + b, 0);
+                    statistics.columns[columnName].avg = statistics.columns[columnName].sum / numericValues.length;
+                    statistics.columns[columnName].count = numericValues.length;
+                }
+            }
+        });
+
+        // Identificar columnas clave (Status, Client, Quarter, etc.)
+        const statusCol = structure.columns.find(col =>
+            col.category === 'status' || /status|estado/i.test(col.name)
+        );
+
+        const clientCol = structure.columns.find(col =>
+            /client|cliente|company|empresa|account/i.test(col.name)
+        );
+
+        const quarterCol = structure.columns.find(col =>
+            /quarter|trimestre|q[1-4]|period/i.test(col.name)
+        );
+
+        const roleCol = structure.columns.find(col =>
+            col.category === 'role' || /role|rol|position|level|seniority/i.test(col.name)
+        );
+
+        // Agregar resumen rápido de columnas clave
+        statistics.quickSummary = {};
+
+        if (statusCol && statistics.columns[statusCol.name]) {
+            statistics.quickSummary.statusBreakdown = statistics.columns[statusCol.name].distribution;
+        }
+
+        if (clientCol && statistics.columns[clientCol.name]) {
+            statistics.quickSummary.clientBreakdown = statistics.columns[clientCol.name].distribution;
+        }
+
+        if (quarterCol && statistics.columns[quarterCol.name]) {
+            statistics.quickSummary.quarterBreakdown = statistics.columns[quarterCol.name].distribution;
+        }
+
+        if (roleCol && statistics.columns[roleCol.name]) {
+            statistics.quickSummary.roleBreakdown = statistics.columns[roleCol.name].distribution;
+        }
+
+        console.log(`✅ Estadísticas calculadas: ${Object.keys(statistics.columns).length} columnas analizadas`);
+
+        return statistics;
+
+    } catch (error) {
+        console.error('❌ Error calculando estadísticas:', error);
+        return null;
+    }
+}
+
+// ========================================
+// SMART CONTEXT CHUNKING
+// ========================================
+
+// Función para detectar filtros temporales en la consulta del usuario
+function detectTemporalFilters(userQuery) {
+    const queryLower = userQuery.toLowerCase();
+    const filters = {
+        quarters: [],
+        years: [],
+        months: []
+    };
+
+    // Detectar trimestres (Q1, Q2, Q3, Q4)
+    const quarterMatches = queryLower.match(/q[1-4]/gi);
+    if (quarterMatches) {
+        filters.quarters = [...new Set(quarterMatches.map(q => q.toUpperCase()))];
+    }
+
+    // Detectar años (2023, 2024, 2025, etc.)
+    const yearMatches = queryLower.match(/20[2-9][0-9]/g);
+    if (yearMatches) {
+        filters.years = [...new Set(yearMatches)];
+    }
+
+    // Detectar meses en español e inglés
+    const monthPatterns = {
+        'enero': 'January', 'february': 'February', 'febrero': 'February',
+        'marzo': 'March', 'march': 'March',
+        'abril': 'April', 'april': 'April',
+        'mayo': 'May', 'may': 'May',
+        'junio': 'June', 'june': 'June',
+        'julio': 'July', 'july': 'July',
+        'agosto': 'August', 'august': 'August',
+        'septiembre': 'September', 'september': 'September',
+        'octubre': 'October', 'october': 'October',
+        'noviembre': 'November', 'november': 'November',
+        'diciembre': 'December', 'december': 'December'
+    };
+
+    for (const [pattern, month] of Object.entries(monthPatterns)) {
+        if (queryLower.includes(pattern)) {
+            filters.months.push(month);
+        }
+    }
+
+    filters.months = [...new Set(filters.months)];
+
+    return filters;
+}
+
+// Función para detectar entidades/filtros específicos en la consulta
+function detectEntityFilters(userQuery, documentStructure) {
+    const queryLower = userQuery.toLowerCase();
+    const filters = {
+        clients: [],
+        roles: [],
+        status: [],
+        priority: []
+    };
+
+    if (!documentStructure || !documentStructure.columns) {
+        return filters;
+    }
+
+    // Buscar columnas de clientes
+    const clientCol = documentStructure.columns.find(col =>
+        /client|cliente|company|empresa|account/i.test(col.name)
+    );
+
+    // Buscar columnas de roles
+    const roleCol = documentStructure.columns.find(col =>
+        col.category === 'role' || /role|rol|position|level|seniority/i.test(col.name)
+    );
+
+    // Buscar columnas de status
+    const statusCol = documentStructure.columns.find(col =>
+        col.category === 'status' || /status|estado/i.test(col.name)
+    );
+
+    // Buscar columnas de prioridad
+    const priorityCol = documentStructure.columns.find(col =>
+        col.category === 'priority' || /priority|prioridad/i.test(col.name)
+    );
+
+    // Detectar menciones de clientes en la query
+    if (clientCol && clientCol.sampleValues) {
+        clientCol.sampleValues.forEach(client => {
+            if (client && queryLower.includes(client.toLowerCase())) {
+                filters.clients.push(client);
+            }
+        });
+    }
+
+    // Detectar menciones de roles
+    if (roleCol && roleCol.sampleValues) {
+        roleCol.sampleValues.forEach(role => {
+            if (role && queryLower.includes(role.toLowerCase())) {
+                filters.roles.push(role);
+            }
+        });
+    }
+
+    // Detectar menciones de status comunes
+    const commonStatus = ['open', 'closed', 'pending', 'completed', 'active', 'inactive',
+                          'abierto', 'cerrado', 'pendiente', 'completado', 'activo', 'inactivo',
+                          'still open', 'pipeline', 'hold'];
+
+    commonStatus.forEach(status => {
+        if (queryLower.includes(status.toLowerCase())) {
+            filters.status.push(status);
+        }
+    });
+
+    return filters;
+}
+
+// Función para filtrar contenido del documento basado en filtros detectados
+function filterDocumentContent(csvContent, temporalFilters, entityFilters, structure) {
+    try {
+        console.log('🔍 Filtrando contenido del documento...');
+        console.log('📅 Filtros temporales:', temporalFilters);
+        console.log('🏢 Filtros de entidad:', entityFilters);
+
+        // Si no hay filtros, retornar contenido completo
+        const hasTemporalFilters = temporalFilters.quarters.length > 0 ||
+                                   temporalFilters.years.length > 0 ||
+                                   temporalFilters.months.length > 0;
+
+        const hasEntityFilters = entityFilters.clients.length > 0 ||
+                                 entityFilters.roles.length > 0 ||
+                                 entityFilters.status.length > 0;
+
+        if (!hasTemporalFilters && !hasEntityFilters) {
+            console.log('ℹ️ Sin filtros detectados, usando contenido completo');
+            return {
+                content: csvContent,
+                filtered: false,
+                reason: 'No filters applied'
+            };
+        }
+
+        if (!structure || !structure.columns) {
+            console.log('⚠️ Sin estructura, no se puede filtrar');
+            return {
+                content: csvContent,
+                filtered: false,
+                reason: 'No structure available'
+            };
+        }
+
+        // Parsear CSV
+        const lines = csvContent.split('\n');
+        if (lines.length < 2) {
+            return {
+                content: csvContent,
+                filtered: false,
+                reason: 'Document too small'
+            };
+        }
+
+        const header = lines[0];
+        const dataLines = lines.slice(1);
+
+        // Identificar índices de columnas relevantes
+        const headerCols = parseCSVLine(header);
+        const quarterColIndex = structure.columns.findIndex(col =>
+            /quarter|trimestre|q[1-4]|period/i.test(col.name)
+        );
+
+        const yearColIndex = structure.columns.findIndex(col =>
+            /year|año|fecha|date/i.test(col.name)
+        );
+
+        const clientColIndex = structure.columns.findIndex(col =>
+            /client|cliente|company|empresa|account/i.test(col.name)
+        );
+
+        const roleColIndex = structure.columns.findIndex(col =>
+            col.category === 'role' || /role|rol|position|level/i.test(col.name)
+        );
+
+        const statusColIndex = structure.columns.findIndex(col =>
+            col.category === 'status' || /status|estado/i.test(col.name)
+        );
+
+        // Filtrar líneas
+        const filteredLines = dataLines.filter(line => {
+            const cols = parseCSVLine(line);
+
+            // Aplicar filtros temporales
+            if (hasTemporalFilters) {
+                // Filtro de trimestre
+                if (temporalFilters.quarters.length > 0 && quarterColIndex !== -1) {
+                    const quarterValue = cols[quarterColIndex]?.toUpperCase() || '';
+                    const matchesQuarter = temporalFilters.quarters.some(q =>
+                        quarterValue.includes(q)
+                    );
+                    if (!matchesQuarter) return false;
+                }
+
+                // Filtro de año
+                if (temporalFilters.years.length > 0 && yearColIndex !== -1) {
+                    const yearValue = cols[yearColIndex] || '';
+                    const matchesYear = temporalFilters.years.some(y =>
+                        yearValue.includes(y)
+                    );
+                    if (!matchesYear) return false;
+                }
+            }
+
+            // Aplicar filtros de entidad
+            if (hasEntityFilters) {
+                // Filtro de cliente
+                if (entityFilters.clients.length > 0 && clientColIndex !== -1) {
+                    const clientValue = (cols[clientColIndex] || '').toLowerCase();
+                    const matchesClient = entityFilters.clients.some(c =>
+                        clientValue.includes(c.toLowerCase())
+                    );
+                    if (!matchesClient) return false;
+                }
+
+                // Filtro de rol
+                if (entityFilters.roles.length > 0 && roleColIndex !== -1) {
+                    const roleValue = (cols[roleColIndex] || '').toLowerCase();
+                    const matchesRole = entityFilters.roles.some(r =>
+                        roleValue.includes(r.toLowerCase())
+                    );
+                    if (!matchesRole) return false;
+                }
+
+                // Filtro de status
+                if (entityFilters.status.length > 0 && statusColIndex !== -1) {
+                    const statusValue = (cols[statusColIndex] || '').toLowerCase();
+                    const matchesStatus = entityFilters.status.some(s =>
+                        statusValue.includes(s.toLowerCase())
+                    );
+                    if (!matchesStatus) return false;
+                }
+            }
+
+            return true;
+        });
+
+        // Construir CSV filtrado
+        const filteredContent = [header, ...filteredLines].join('\n');
+
+        console.log(`✅ Filtrado completado: ${filteredLines.length}/${dataLines.length} filas coinciden`);
+
+        return {
+            content: filteredContent,
+            filtered: true,
+            originalRows: dataLines.length,
+            filteredRows: filteredLines.length,
+            filters: {
+                temporal: temporalFilters,
+                entity: entityFilters
+            }
+        };
+
+    } catch (error) {
+        console.error('❌ Error filtrando documento:', error);
+        return {
+            content: csvContent,
+            filtered: false,
+            reason: `Error: ${error.message}`
+        };
+    }
+}
+
+// ========================================
 // ADVANCED GOOGLE DOCS PARSING
 // ========================================
 
@@ -2858,6 +3249,15 @@ async function readFileContent(fileId, mimeType) {
                         console.log('📊 Aplicando análisis avanzado a Google Sheets...');
                         advancedParse = parseCSVAdvanced(content);
 
+                        // Calcular estadísticas pre-agregadas
+                        if (advancedParse.structure) {
+                            const statistics = calculatePreAggregatedStatistics(content, advancedParse.structure);
+                            if (statistics) {
+                                advancedParse.statistics = statistics;
+                                console.log(`📊 Estadísticas calculadas: ${statistics.totalRows} filas, ${Object.keys(statistics.columns).length} columnas con datos`);
+                            }
+                        }
+
                         // Crear contenido enriquecido con metadatos
                         if (advancedParse.analysis && advancedParse.analysis !== 'Sin análisis disponible' &&
                             advancedParse.analysis !== 'Contenido no parece ser datos tabulares CSV') {
@@ -2918,6 +3318,9 @@ async function readFileContent(fileId, mimeType) {
                         }
                         if (advancedParse.analysis) {
                             cacheData.analysis = advancedParse.analysis;
+                        }
+                        if (advancedParse.statistics) {
+                            cacheData.statistics = advancedParse.statistics;
                         }
                     }
 
@@ -3425,12 +3828,26 @@ async function loadFullContentForDocs(docIds) {
             console.log(`⏳ Cargando ${meta.name}...`);
             const content = await readFileContent(meta.id, meta.mimeType);
 
+            // Recuperar estructura y estadísticas del caché si existen
+            const cachedDoc = getDocumentFromCache(meta.id);
+
             const doc = {
                 id: meta.id,
                 name: meta.name,
                 content: content,
                 mimeType: meta.mimeType
             };
+
+            // Agregar estructura y estadísticas si están disponibles en caché
+            if (cachedDoc) {
+                if (cachedDoc.structure) {
+                    doc.structure = cachedDoc.structure;
+                }
+                if (cachedDoc.statistics) {
+                    doc.statistics = cachedDoc.statistics;
+                    console.log(`📊 Estadísticas cargadas del caché: ${doc.statistics.totalRows} filas`);
+                }
+            }
 
             // Agregar a la lista de documentos completos
             driveDocuments.push(doc);
@@ -4233,39 +4650,165 @@ async function analyzeDocumentsWithAI(userMessage) {
         
         console.log(`🎯 Documentos relevantes seleccionados: ${relevantDocs.length} de ${driveDocuments.length}`);
         console.log(`📄 Documentos: ${relevantDocs.map(d => d.name).join(', ')}`);
-        
+
+        // SMART CONTEXT CHUNKING: Detectar filtros en la consulta del usuario
+        const temporalFilters = detectTemporalFilters(userMessage);
+        console.log('📅 Filtros temporales detectados:', temporalFilters);
+
         // Construir contexto con documentos relevantes COMPLETOS (sin truncar)
         let context = `Tengo acceso a los siguientes documentos relevantes para tu pregunta:\n\n`;
         let totalCharsUsed = 0;
-        
+        let totalFiltered = 0;
+
         relevantDocs.forEach((doc, index) => {
-            // ENVIAR DOCUMENTO COMPLETO sin truncar (hasta el límite por documento)
-            const charsToUse = Math.min(MAX_DOC_PREVIEW_LENGTH, doc.content.length);
-            const content = doc.content.substring(0, charsToUse);
-            
+            // Detectar filtros de entidad basados en la estructura del documento
+            const entityFilters = detectEntityFilters(userMessage, doc.structure);
+            console.log(`🏢 Filtros de entidad para "${doc.name}":`, entityFilters);
+
+            // Aplicar smart filtering si es un CSV/spreadsheet con estructura
+            let contentToSend = doc.content;
+            let filterResult = null;
+
+            if (doc.mimeType && doc.mimeType.includes('spreadsheet') && doc.structure) {
+                filterResult = filterDocumentContent(doc.content, temporalFilters, entityFilters, doc.structure);
+                if (filterResult.filtered) {
+                    contentToSend = filterResult.content;
+                    totalFiltered++;
+                    console.log(`🔍 Documento filtrado: ${filterResult.filteredRows}/${filterResult.originalRows} filas coinciden con filtros`);
+                }
+            }
+
+            // ENVIAR DOCUMENTO (filtrado o completo) sin truncar (hasta el límite por documento)
+            const charsToUse = Math.min(MAX_DOC_PREVIEW_LENGTH, contentToSend.length);
+            const content = contentToSend.substring(0, charsToUse);
+
             context += `Documento ${index + 1}: "${doc.name}"\n`;
             context += `Tipo MIME: ${doc.mimeType}\n`;
-            context += `Tamaño: ${doc.content.length.toLocaleString()} caracteres ${charsToUse < doc.content.length ? `(enviando primeros ${charsToUse.toLocaleString()})` : '(completo)'}\n`;
+            context += `Tamaño: ${contentToSend.length.toLocaleString()} caracteres ${charsToUse < contentToSend.length ? `(enviando primeros ${charsToUse.toLocaleString()})` : '(completo)'}\n`;
+
+            // Mostrar información de filtrado si se aplicó
+            if (filterResult && filterResult.filtered) {
+                const reductionPercent = (((filterResult.originalRows - filterResult.filteredRows) / filterResult.originalRows) * 100).toFixed(0);
+                context += `\n${'═'.repeat(60)}\n`;
+                context += `⚡ FILTRADO INTELIGENTE APLICADO\n`;
+                context += `${'═'.repeat(60)}\n`;
+                context += `✅ RESULTADO: ${filterResult.filteredRows} de ${filterResult.originalRows} filas (reducción del ${reductionPercent}%)\n`;
+
+                const filterParts = [];
+                if (temporalFilters.quarters.length > 0) {
+                    filterParts.push(`📅 Trimestres: ${temporalFilters.quarters.join(', ')}`);
+                }
+                if (temporalFilters.years.length > 0) {
+                    filterParts.push(`📅 Años: ${temporalFilters.years.join(', ')}`);
+                }
+                if (entityFilters.clients.length > 0) {
+                    filterParts.push(`🏢 Clientes: ${entityFilters.clients.join(', ')}`);
+                }
+                if (entityFilters.status.length > 0) {
+                    filterParts.push(`🔄 Status: ${entityFilters.status.join(', ')}`);
+                }
+                if (entityFilters.roles.length > 0) {
+                    filterParts.push(`👤 Roles: ${entityFilters.roles.join(', ')}`);
+                }
+
+                if (filterParts.length > 0) {
+                    context += `🎯 FILTROS DETECTADOS:\n`;
+                    filterParts.forEach(part => {
+                        context += `   ${part}\n`;
+                    });
+                }
+                context += `${'═'.repeat(60)}\n`;
+            }
+
+            // Agregar estadísticas pre-agregadas si están disponibles
+            if (doc.statistics && doc.statistics.quickSummary) {
+                context += `\n${'─'.repeat(60)}\n`;
+                context += `📊 RESUMEN ESTADÍSTICO RÁPIDO (para referencia instantánea)\n`;
+                context += `${'─'.repeat(60)}\n`;
+                context += `📈 TOTAL DE FILAS: ${doc.statistics.totalRows}\n`;
+
+                const summaryParts = [];
+
+                if (doc.statistics.quickSummary.statusBreakdown) {
+                    const statusEntries = Object.entries(doc.statistics.quickSummary.statusBreakdown)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5);
+                    const statusLine = statusEntries.map(([status, count]) => {
+                        const percentage = ((count / doc.statistics.totalRows) * 100).toFixed(0);
+                        return `${status}=${count} (${percentage}%)`;
+                    }).join(' | ');
+                    summaryParts.push(`🔹 STATUS: ${statusLine}`);
+                }
+
+                if (doc.statistics.quickSummary.clientBreakdown) {
+                    const clientEntries = Object.entries(doc.statistics.quickSummary.clientBreakdown)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5);
+                    const totalClients = Object.keys(doc.statistics.quickSummary.clientBreakdown).length;
+                    const clientLine = clientEntries.map(([client, count]) => {
+                        const percentage = ((count / doc.statistics.totalRows) * 100).toFixed(0);
+                        return `${client}=${count} (${percentage}%)`;
+                    }).join(' | ');
+                    summaryParts.push(`🔹 CLIENTES (${totalClients} total): ${clientLine}${totalClients > 5 ? ' | +más...' : ''}`);
+                }
+
+                if (doc.statistics.quickSummary.quarterBreakdown) {
+                    const quarterEntries = Object.entries(doc.statistics.quickSummary.quarterBreakdown)
+                        .sort((a, b) => {
+                            // Sort by quarter name to maintain chronological order
+                            return a[0].localeCompare(b[0]);
+                        });
+                    const quarterLine = quarterEntries.map(([q, count]) => {
+                        const percentage = ((count / doc.statistics.totalRows) * 100).toFixed(0);
+                        return `${q}=${count} (${percentage}%)`;
+                    }).join(' | ');
+                    summaryParts.push(`🔹 TRIMESTRES: ${quarterLine}`);
+                }
+
+                if (doc.statistics.quickSummary.roleBreakdown) {
+                    const roleEntries = Object.entries(doc.statistics.quickSummary.roleBreakdown)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 5);
+                    const totalRoles = Object.keys(doc.statistics.quickSummary.roleBreakdown).length;
+                    const roleLine = roleEntries.map(([role, count]) => {
+                        const percentage = ((count / doc.statistics.totalRows) * 100).toFixed(0);
+                        return `${role}=${count} (${percentage}%)`;
+                    }).join(' | ');
+                    summaryParts.push(`🔹 ROLES (${totalRoles} total): ${roleLine}${totalRoles > 5 ? ' | +más...' : ''}`);
+                }
+
+                // Add each summary part on its own line for better readability
+                summaryParts.forEach(part => {
+                    context += `\n${part}`;
+                });
+
+                context += `\n${'─'.repeat(60)}\n`;
+                context += `💡 Usa estos números para respuestas rápidas y precisas\n`;
+            }
 
             // Agregar información de estructura
             if (doc.structure && doc.structure.columns) {
                 const categoricalColumns = doc.structure.columns.filter(col =>
-                    ['status', 'priority', 'category', 'phase'].includes(col.category) && col.confidence > 0.6
+                    ['status', 'priority', 'category', 'phase', 'role'].includes(col.category) && col.confidence > 0.6
                 );
                 if (categoricalColumns.length > 0) {
-                    context += `Columnas detectadas: `;
+                    context += `\n📋 COLUMNAS CATEGÓRICAS DETECTADAS:\n`;
                     categoricalColumns.forEach(col => {
                         const values = Array.from(col.uniqueValues).slice(0, 5).join(', ');
-                        context += `${col.name}: ${values}${col.uniqueCount > 5 ? ' (y más)' : ''}; `;
+                        const moreText = col.uniqueCount > 5 ? ` (+${col.uniqueCount - 5} más)` : '';
+                        context += `   • ${col.name}: ${values}${moreText}\n`;
                     });
-                    context += '\n';
                 }
             }
 
-            context += `\n=== CONTENIDO COMPLETO ===\n${content}\n=== FIN DEL DOCUMENTO ===\n\n`;
-            
+            context += `\n=== CONTENIDO ${filterResult && filterResult.filtered ? 'FILTRADO' : 'COMPLETO'} ===\n${content}\n=== FIN DEL DOCUMENTO ===\n\n`;
+
             totalCharsUsed += charsToUse;
         });
+
+        if (totalFiltered > 0) {
+            console.log(`✅ Smart filtering aplicado a ${totalFiltered} documento(s)`);
+        }
 
         console.log(`📊 Contexto construido: ${totalCharsUsed.toLocaleString()} caracteres enviados a Grok`);
         console.log(`✅ Enviando ${relevantDocs.length} documento(s) COMPLETO(S) (sin truncamiento interno)`);
@@ -4357,10 +4900,64 @@ RESPONDE EN ESPAÑOL de forma BREVE y PROFESIONAL.`
             messages.push(...recentHistory);
         }
         
-        // Agregar la pregunta actual
+        // Detectar si el usuario pide detalles explícitamente
+        const userWantsDetails = /detalle|explica.*más|profundiza|desglose.*completo|lista.*todo|análisis.*detallado|quiero.*saber.*más|completo|extens/i.test(userMessage);
+
+        // Agregar la pregunta actual con instrucciones mejoradas
         messages.push({
             role: 'user',
-            content: `${context}\n\n=== PREGUNTA DEL USUARIO ===\n${userMessage}\n\n=== INSTRUCCIONES ===\nAnaliza TODO el contenido de los documentos (entre === CONTENIDO COMPLETO === y === FIN ===).\n\nRespuesta CONCISA (2-5 líneas) con:\n• Dato principal directo\n• Números exactos\n• Desglose breve en 2-3 categorías clave\n• SIN explicaciones extensas (a menos que el usuario pida "detalles" o "explica más")\n\nCUENTA exactamente, pero PRESENTA de forma BREVE.\n\nSi esta pregunta es similar a una anterior, USA LOS MISMOS NÚMEROS Y CRITERIOS.\n\nIMPORTANTE SOBRE FILTROS:\n• Si el usuario NO menciona un trimestre/fecha específico, cuenta TODAS las filas del documento (sin filtro temporal)\n• SOLO filtra si el usuario dice explícitamente "Q4", "2025", "octubre", etc.\n• "Vacantes abiertas" SIN especificar fecha = TODAS las vacantes con status OPEN/Still Open en TODO el documento`
+            content: `${context}\n\n=== PREGUNTA DEL USUARIO ===\n${userMessage}\n\n=== INSTRUCCIONES DE FORMATO ===
+
+⚡ SMART FILTERING: Si ves "FILTRADO INTELIGENTE APLICADO", el documento YA ha sido filtrado automáticamente según la consulta. Los números que cuentes son SOLO de las filas filtradas.
+
+📊 RESUMEN ESTADÍSTICO: Si hay un "RESUMEN ESTADÍSTICO RÁPIDO", puedes usar esos números como referencia rápida para responder, pero siempre verifica contra el contenido completo.
+
+Analiza TODO el contenido de los documentos (entre === CONTENIDO ${totalFiltered > 0 ? 'FILTRADO' : 'COMPLETO'} === y === FIN ===).
+
+${userWantsDetails ?
+`🔍 USUARIO PIDIÓ DETALLES → Respuesta DETALLADA permitida:
+• Lista completa de elementos
+• Contexto adicional y explicaciones
+• Fechas específicas
+• Comparaciones y análisis profundo
+• Múltiples secciones si es necesario`
+:
+`📏 LONGITUD MÁXIMA: 5 LÍNEAS
+
+⚠️ RESTRICCIÓN ESTRICTA: NO MÁS DE 5 LÍNEAS TOTALES
+
+FORMATO OBLIGATORIO:
+Línea 1: [Número principal] + [contexto breve]
+Líneas 2-3: • Desglose en 2-3 categorías PRINCIPALES (agrupadas)
+Líneas 4-5: Dato adicional SOLO si es crítico
+
+EJEMPLO PERFECTO:
+"Hay 27 vacantes abiertas en total.
+• Exact Sciences: 15 posiciones (56%)
+• iTJ: 8 posiciones (30%)
+• Otros: 4 posiciones (14%)"
+
+❌ NO HAGAS (muy importante):
+- Más de 5 líneas
+- Párrafos largos o explicaciones extensas
+- Listar todos los elementos uno por uno
+- Múltiples secciones (Resumen, Detalles, Análisis, etc.)
+- Contexto histórico sin que lo pidan
+- Frases de introducción largas
+
+✅ SÍ HACES:
+- Directo al punto (primera línea = respuesta)
+- Números EXACTOS siempre
+- Agrupar categorías similares ("Otros")
+- Usar porcentajes para dar contexto sin ocupar espacio`}
+
+Si esta pregunta es similar a una anterior, USA LOS MISMOS NÚMEROS Y CRITERIOS.
+
+IMPORTANTE:
+• Si el documento fue FILTRADO, los números reflejan SOLO las filas que coinciden con los filtros
+• Si el documento es COMPLETO, los números reflejan TODAS las filas
+• Usa el RESUMEN ESTADÍSTICO como referencia rápida cuando esté disponible
+• CUENTA exactamente pero PRESENTA de forma BREVE`
         });
         
         const response = await callXAI(messages);
