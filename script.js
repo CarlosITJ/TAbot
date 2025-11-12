@@ -57,7 +57,7 @@ let documentMetadata = []; // Metadata ligera de TODOS los documentos (título +
 let driveFolderId = null;
 
 // Constantes de configuración
-const MAX_DOC_PREVIEW_LENGTH = 1000000; // Caracteres máximos por documento enviados a la IA (1M chars ≈ 250k tokens) - AUMENTADO para Google Sheets grandes
+const MAX_DOC_PREVIEW_LENGTH = 2000000; // Caracteres máximos por documento enviados a la IA (2M chars ≈ 500k tokens) - AUMENTADO para Google Sheets grandes con muchos datos
 const TOTAL_CONTEXT_BUDGET = 5000000; // Presupuesto total de caracteres para todos los documentos (5M chars ≈ 1.25M tokens, aprovechando contexto de 2M de Grok-4)
 const SEARCH_CONTEXT_LENGTH = 200; // Caracteres de contexto antes/después de una coincidencia (aumentado para mejor contexto)
 const MAX_DOCUMENTS_RECOMMENDED = 50; // Número recomendado de documentos a cargar simultáneamente
@@ -141,7 +141,67 @@ async function getBotResponse(userMessage) {
         documentsLoaded: driveDocuments.length
     });
 
-    // PRIORIDAD 1: Si hay xAI configurado, usar IA con búsqueda inteligente
+    // PRIORIDAD 0: Detectar mensajes simples/conversacionales (sin búsqueda en documentos)
+    // IMPORTANTE: Solo detectar si es REALMENTE un mensaje conversacional simple
+    // NO detectar si parece una pregunta sobre datos
+    
+    const dataKeywords = ['cuánto', 'cuanto', 'cuántos', 'cuantos', 'quién', 'quien', 'qué', 'que', 
+                         'dónde', 'donde', 'cuándo', 'cuando', 'cómo', 'como', 'por qué', 'porque',
+                         'lista', 'dame', 'muestra', 'busca', 'encuentra', 'roles', 'vacantes', 
+                         'candidatos', 'hires', 'pipeline', 'status', 'documento', 'archivo'];
+    
+    const hasDataKeywords = dataKeywords.some(kw => message.includes(kw));
+    
+    // Solo tratar como mensaje simple si NO tiene palabras clave de datos
+    if (!hasDataKeywords) {
+        const simpleKeywords = ['hola', 'adiós', 'adios', 'gracias', 'cómo estás', 'como estas', 
+                               'buenos días', 'buenas tardes', 'buenas noches', 'hey', 
+                               'qué tal', 'que tal', 'saludos', 'holi'];
+        
+        const isSimpleMessage = simpleKeywords.some(keyword => message === keyword || 
+                                                              message.startsWith(keyword + ' ') || 
+                                                              message.endsWith(' ' + keyword));
+        
+        // Caso especial: "nombre" solo si no pregunta por nombre de candidatos/personas
+        const isAskingMyName = (message === 'nombre' || message === 'tu nombre' || 
+                               message === 'cual es tu nombre' || message === 'cuál es tu nombre' ||
+                               message.match(/^(cuál|cual)\s+es\s+tu\s+nombre/));
+        
+        if (isSimpleMessage || isAskingMyName) {
+            console.log('💬 Mensaje simple detectado, usando respuestas predefinidas');
+            // Buscar en respuestas predefinidas
+            for (const [key, value] of Object.entries(responses)) {
+                if (message.includes(key)) {
+                    return value[Math.floor(Math.random() * value.length)];
+                }
+            }
+        }
+    }
+
+    // PRIORIDAD 1: Verificar si el usuario pregunta por un archivo específico
+    const fileNameMatch = message.match(/archivo|documento|file|lee|leer|abrir|ver/);
+    if (fileNameMatch && (documentMetadata.length > 0 || driveDocuments.length > 0)) {
+        // Extraer posible nombre de archivo de la pregunta
+        const allDocs = documentMetadata.length > 0 ? documentMetadata : driveDocuments;
+        const docNames = allDocs.map(d => d.name).join(', ');
+        
+        console.log(`📄 Usuario pregunta por archivo específico. Documentos disponibles: ${docNames}`);
+        
+        // Verificar si algún nombre de documento está mencionado en la pregunta
+        const mentionedDoc = allDocs.find(doc => 
+            message.includes(doc.name.toLowerCase()) || 
+            doc.name.toLowerCase().includes(message.replace(/archivo|documento|lee|leer|el|la|puedes|ver/g, '').trim())
+        );
+        
+        if (mentionedDoc) {
+            console.log(`✅ Documento encontrado: ${mentionedDoc.name}`);
+        } else {
+            console.log(`⚠️ No se encontró el documento específico mencionado`);
+            return `📁 Tengo acceso a los siguientes documentos:\n\n${allDocs.slice(0, 10).map((d, i) => `${i + 1}. ${d.name}`).join('\n')}${allDocs.length > 10 ? `\n\n...y ${allDocs.length - 10} documentos más` : ''}\n\n¿Cuál documento específico te gustaría que analice?`;
+        }
+    }
+
+    // PRIORIDAD 2: Si hay xAI configurado, usar IA con búsqueda inteligente
     if (xaiApiKey) {
         console.log('✅ xAI está configurado, intentando usar IA...');
         updateLoadingIndicator('🔍 Buscando documentos relevantes...');
@@ -282,7 +342,19 @@ async function sendMessage() {
     
     try {
         // Obtener respuesta (ahora es async)
-        const botResponse = await getBotResponse(message);
+        let botResponse = await getBotResponse(message);
+        
+        // VALIDACIÓN: Detectar si la respuesta contiene contenido crudo de documentos
+        // Esto no debería pasar, pero si pasa, lo limpiamos
+        if (botResponse && botResponse.length > 5000) {
+            console.warn('⚠️ Respuesta demasiado larga detectada. Puede contener contenido crudo.');
+            
+            // Verificar si contiene marcadores de contenido de documento
+            if (botResponse.includes('=== CONTENIDO') || botResponse.includes('=== FIN DEL DOCUMENTO')) {
+                console.error('❌ ERROR: La IA devolvió el contexto completo en lugar de una respuesta procesada');
+                botResponse = 'Lo siento, hubo un error al procesar la información. La respuesta fue demasiado extensa. Por favor, intenta reformular tu pregunta de manera más específica o pregunta por un documento particular.';
+            }
+        }
         
         // Remover indicador de escritura
         const indicator = document.getElementById('typing-indicator');
@@ -4617,31 +4689,123 @@ async function analyzeDocumentsWithAI(userMessage) {
         
         // Detectar si el usuario pregunta por un documento específico
         let relevantDocs = [];
-        const keywords = ['pipeline', 'candidate', 'q4', 'vacantes', 'roles', 'interview', 'onboarding', 'schedule'];
         
-        // Buscar documentos relevantes basados en keywords
-        for (const doc of driveDocuments) {
-            const docNameLower = doc.name.toLowerCase();
-            const isRelevant = keywords.some(keyword => 
-                userMessageLower.includes(keyword) && docNameLower.includes(keyword)
-            );
+        // PASO 0: Detectar tipo de pregunta primero (tiene prioridad sobre menciones de nombres)
+        const isPipelineQuestion = /vacante|vacant|open|abierto|role|rol|position|posicion/i.test(userMessage);
+        const isOKRQuestion = /\bokr\b|hire|contrat|q[1-4]/i.test(userMessage);
+        const isHandbookQuestion = /handbook|manual|bonus|compensation|policy|guide|estructura|organigrama/i.test(userMessage);
+        
+        console.log('🔍 Tipo de pregunta detectado:', {
+            pipeline: isPipelineQuestion,
+            okr: isOKRQuestion,
+            handbook: isHandbookQuestion
+        });
+        
+        // PASO 1: Si el usuario menciona explícitamente un documento (ej: "en Candidate Pipeline"), usar ese
+        const explicitDocMention = userMessageLower.match(/\b(en|del|de|from|in)\s+([a-z0-9\s\-]+)/i);
+        if (explicitDocMention) {
+            const mentionedDocName = explicitDocMention[2];
+            console.log(`📄 Mención explícita de documento detectada: "${mentionedDocName}"`);
             
-            if (isRelevant) {
-                relevantDocs.push(doc);
+            for (const doc of driveDocuments) {
+                const docNameLower = doc.name.toLowerCase();
+                if (docNameLower.includes(mentionedDocName.toLowerCase())) {
+                    console.log(`✅ Documento encontrado por mención explícita: "${doc.name}"`);
+                    relevantDocs.push(doc);
+                }
             }
         }
         
-        // Si no encontramos documentos específicos relevantes, usar todos pero priorizar "Pipeline"
+        // PASO 2: Si no hay mención explícita, usar la detección de tipo de pregunta
         if (relevantDocs.length === 0) {
-            // Priorizar documentos que parecen importantes basándonos en el nombre
-            const priorityKeywords = ['pipeline', 'main', 'principal', 'candidate'];
+            if (isPipelineQuestion) {
+                // Preguntas sobre vacantes/roles → buscar en Pipeline
+                const pipelineDocs = driveDocuments.filter(doc => 
+                    /pipeline|candidate/i.test(doc.name)
+                );
+                if (pipelineDocs.length > 0) {
+                    console.log(`📌 Pregunta sobre vacantes/roles → usando Pipeline: ${pipelineDocs.map(d => d.name).join(', ')}`);
+                    relevantDocs.push(...pipelineDocs);
+                }
+            }
+            
+            if (isOKRQuestion) {
+                // Preguntas sobre OKRs/hires → buscar en OKRs
+                const okrDocs = driveDocuments.filter(doc => 
+                    /okr/i.test(doc.name)
+                );
+                if (okrDocs.length > 0) {
+                    console.log(`📌 Pregunta sobre OKRs/hires → usando OKRs: ${okrDocs.map(d => d.name).join(', ')}`);
+                    relevantDocs.push(...okrDocs);
+                }
+            }
+            
+            if (isHandbookQuestion) {
+                // Preguntas sobre políticas → buscar en Handbook/PDFs
+                const handbookDocs = driveDocuments.filter(doc => 
+                    /handbook|manual|policy|guide/i.test(doc.name) || 
+                    (doc.mimeType && doc.mimeType.includes('pdf'))
+                );
+                if (handbookDocs.length > 0) {
+                    console.log(`📌 Pregunta sobre políticas → usando Handbook: ${handbookDocs.map(d => d.name).join(', ')}`);
+                    relevantDocs.push(...handbookDocs);
+                }
+            }
+        }
+        
+        // PASO 3: Si aún no encontró nada, buscar por coincidencias de palabras en el nombre del documento
+        // (pero solo si no parece ser una pregunta de tipo pipeline/okr/handbook)
+        if (relevantDocs.length === 0 && !isPipelineQuestion && !isOKRQuestion && !isHandbookQuestion) {
+            for (const doc of driveDocuments) {
+                const docNameLower = doc.name.toLowerCase();
+                // Dividir el nombre del documento en palabras significativas (sin .pdf, .docx, etc.)
+                const cleanDocName = docNameLower.replace(/\.(pdf|docx|xlsx|csv|txt)$/i, '');
+                const docWords = cleanDocName.split(/[\s_\-\.]+/).filter(w => w.length > 2);
+                
+                // Verificar si varias palabras del nombre del documento aparecen en el mensaje
+                const matchingWords = docWords.filter(word => userMessageLower.includes(word));
+                
+                // También verificar si el usuario menciona el documento de forma directa (ej: "TA Handbook", "handbook")
+                const directMention = docWords.some(word => 
+                    word.length > 4 && userMessageLower.includes(word)
+                );
+                
+                if (matchingWords.length >= 2 || (directMention && matchingWords.length >= 1)) {
+                    console.log(`🎯 Documento mencionado específicamente: "${doc.name}" (${matchingWords.length} palabras coinciden: ${matchingWords.join(', ')})`);
+                    relevantDocs.push(doc);
+                }
+            }
+        }
+        
+        // PASO 4: Fallback - búsqueda por keywords si no se detectó nada
+        if (relevantDocs.length === 0) {
+            const keywords = ['pipeline', 'candidate', 'q4', 'q3', 'interview', 'onboarding', 'schedule', 'okr'];
+            
+            for (const doc of driveDocuments) {
+                const docNameLower = doc.name.toLowerCase();
+                const isRelevant = keywords.some(keyword => 
+                    userMessageLower.includes(keyword) && docNameLower.includes(keyword)
+                );
+                
+                if (isRelevant) {
+                    console.log(`📌 Documento relevante por keyword: ${doc.name}`);
+                    relevantDocs.push(doc);
+                }
+            }
+        }
+        
+        // PASO 5: Si no encontramos documentos específicos relevantes, usar todos pero priorizar "Pipeline", "OKR" y PDFs
+        if (relevantDocs.length === 0) {
+            // Priorizar documentos que parecen importantes basándonos en el nombre y tipo
+            const priorityKeywords = ['pipeline', 'main', 'principal', 'candidate', 'okr', 'hiring', 'bonus', 'structure', 'compensation', 'policy'];
             relevantDocs = driveDocuments.filter(doc => 
-                priorityKeywords.some(kw => doc.name.toLowerCase().includes(kw))
+                priorityKeywords.some(kw => doc.name.toLowerCase().includes(kw)) ||
+                (doc.mimeType && doc.mimeType.includes('pdf')) // Incluir PDFs por defecto
             );
             
-            // Si no hay documentos prioritarios, usar los primeros 3
+            // Si no hay documentos prioritarios, usar los primeros 5
             if (relevantDocs.length === 0) {
-                relevantDocs = driveDocuments.slice(0, 3);
+                relevantDocs = driveDocuments.slice(0, 5);
             }
         }
         
@@ -4650,10 +4814,24 @@ async function analyzeDocumentsWithAI(userMessage) {
         
         console.log(`🎯 Documentos relevantes seleccionados: ${relevantDocs.length} de ${driveDocuments.length}`);
         console.log(`📄 Documentos: ${relevantDocs.map(d => d.name).join(', ')}`);
+        console.log(`📊 Tipos de archivo: ${relevantDocs.map(d => d.mimeType).join(', ')}`);
 
         // SMART CONTEXT CHUNKING: Detectar filtros en la consulta del usuario
         const temporalFilters = detectTemporalFilters(userMessage);
         console.log('📅 Filtros temporales detectados:', temporalFilters);
+        
+        // Determinar si debemos aplicar smart filtering o enviar documento completo
+        const hasSpecificFilters = temporalFilters.quarters.length > 0 || 
+                                   temporalFilters.years.length > 0 || 
+                                   temporalFilters.months.length > 0;
+        
+        // Para consultas simples de conteo (sin filtros temporales), NO aplicar filtering
+        const isSimpleCountQuery = /cuánta|cuanta|cuánto|cuanto|cuántos|cuantos|número|cantidad/i.test(userMessage) && 
+                                   !hasSpecificFilters;
+        
+        if (isSimpleCountQuery) {
+            console.log('📊 Consulta de conteo simple detectada - enviando documento COMPLETO sin filtrar');
+        }
 
         // Construir contexto con documentos relevantes COMPLETOS (sin truncar)
         let context = `Tengo acceso a los siguientes documentos relevantes para tu pregunta:\n\n`;
@@ -4665,26 +4843,126 @@ async function analyzeDocumentsWithAI(userMessage) {
             const entityFilters = detectEntityFilters(userMessage, doc.structure);
             console.log(`🏢 Filtros de entidad para "${doc.name}":`, entityFilters);
 
-            // Aplicar smart filtering si es un CSV/spreadsheet con estructura
+            // Aplicar smart filtering SOLO si hay filtros específicos Y NO es una consulta simple de conteo
             let contentToSend = doc.content;
             let filterResult = null;
 
-            if (doc.mimeType && doc.mimeType.includes('spreadsheet') && doc.structure) {
+            if (!isSimpleCountQuery && doc.mimeType && doc.mimeType.includes('spreadsheet') && doc.structure && hasSpecificFilters) {
                 filterResult = filterDocumentContent(doc.content, temporalFilters, entityFilters, doc.structure);
                 if (filterResult.filtered) {
                     contentToSend = filterResult.content;
                     totalFiltered++;
                     console.log(`🔍 Documento filtrado: ${filterResult.filteredRows}/${filterResult.originalRows} filas coinciden con filtros`);
                 }
+            } else if (isSimpleCountQuery) {
+                console.log(`📄 Enviando documento COMPLETO sin filtrar: "${doc.name}" (${doc.content.length} caracteres)`);
             }
 
             // ENVIAR DOCUMENTO (filtrado o completo) sin truncar (hasta el límite por documento)
             const charsToUse = Math.min(MAX_DOC_PREVIEW_LENGTH, contentToSend.length);
             const content = contentToSend.substring(0, charsToUse);
+            
+            // Log detallado del documento
+            console.log(`📄 Documento ${index + 1}: "${doc.name}"`);
+            console.log(`   📏 Tamaño original: ${contentToSend.length.toLocaleString()} caracteres`);
+            console.log(`   📤 Enviando: ${charsToUse.toLocaleString()} caracteres`);
+            console.log(`   ✂️ Truncado: ${charsToUse < contentToSend.length ? 'SÍ' : 'NO'}`);
+            
+            // Contar cuántas líneas tiene el documento
+            const lines = content.split('\n').length;
+            console.log(`   📊 Líneas en el contenido enviado: ${lines}`);
+            
+            // PRE-CONTEO: Para consultas de conteo simple, hacer el conteo en JavaScript
+            let preCountInfo = '';
+            if (isSimpleCountQuery && doc.mimeType && doc.mimeType.includes('spreadsheet')) {
+                console.log('🔢 Realizando pre-conteo en JavaScript...');
+                
+                // Detectar qué se está buscando en la consulta
+                const searchingForOpen = /\bopen\b|\babierto|\babierta/i.test(userMessage);
+                const clientMatch = userMessage.match(/\b(exact sciences?|itj|dexcom|neurocrine|xiltrix|quidel|illumina)\b/i);
+                const clientName = clientMatch ? clientMatch[1] : null;
+                
+                if (searchingForOpen && clientName) {
+                    // Contar filas con Status="Open" o "Still Open" Y cliente específico
+                    const contentLines = content.split('\n');
+                    let matchCount = 0;
+                    const matchedRoles = [];
+                    
+                    console.log(`   🔍 Buscando: Cliente="${clientName}" + Status="OPEN"`);
+                    console.log(`   📊 Total de líneas a analizar: ${contentLines.length}`);
+                    
+                    let debugCount = 0;
+                    for (let i = 0; i < contentLines.length; i++) {
+                        const line = contentLines[i];
+                        if (!line.trim()) continue; // Saltar líneas vacías
+                        
+                        // Dividir por TAB (el formato del archivo)
+                        const columns = line.split('\t');
+                        
+                        // Debug SIEMPRE las primeras 10 líneas no vacías
+                        if (debugCount < 10) {
+                            console.log(`   Línea ${i} (${columns.length} columnas): [${columns.slice(0, 6).map(c => `"${c}"`).join(', ')}...]`);
+                            debugCount++;
+                        }
+                        
+                        // Saltar la línea de encabezados
+                        if (i === 0 || columns[0] === 'REQ#') continue;
+                        
+                        // Columna 4 (índice 3) = Client, Columna 5 (índice 4) = Status
+                        const clientCol = columns[3] ? columns[3].trim() : '';
+                        const statusCol = columns[4] ? columns[4].trim() : '';
+                        
+                        // Normalizar ambos lados: remover espacios y convertir a minúsculas
+                        const clientNormalized = clientCol.toLowerCase().replace(/\s+/g, '');
+                        const searchNormalized = clientName.toLowerCase().replace(/\s+/g, '');
+                        
+                        // Verificar que la columna Client contenga el nombre del cliente
+                        const hasClient = clientNormalized.includes(searchNormalized);
+                        
+                        // Verificar que Status sea exactamente "OPEN" o "Still Open" (case-insensitive)
+                        const statusUpper = statusCol.toUpperCase();
+                        const hasOpen = (statusUpper === 'OPEN' || statusUpper === 'STILL OPEN');
+                        
+                        // Debug: mostrar los matches
+                        if (hasClient && hasOpen && debugCount < 15) {
+                            console.log(`   ✅ MATCH en línea ${i}: Cliente="${clientCol}", Status="${statusCol}"`);
+                            debugCount++;
+                        }
+                        
+                        if (hasClient && hasOpen) {
+                            matchCount++;
+                            // Columna 18 (índice 17) = ROLE
+                            const roleCol = columns[17] ? columns[17].trim() : 'N/A';
+                            matchedRoles.push(roleCol.substring(0, 60));
+                        }
+                    }
+                    
+                    console.log(`   ✅ Pre-conteo JavaScript: ${matchCount} filas con Status=OPEN y Cliente=${clientName}`);
+                    console.log(`   📋 Roles encontrados (primeros 5):`, matchedRoles.slice(0, 5));
+                    
+                    preCountInfo = `\n\n${'═'.repeat(60)}\n`;
+                    preCountInfo += `🔢 PRE-CONTEO AUTOMÁTICO (JavaScript)\n`;
+                    preCountInfo += `${'═'.repeat(60)}\n`;
+                    preCountInfo += `✅ RESULTADO VERIFICADO: ${matchCount} filas cumplen los criterios exactos:\n`;
+                    preCountInfo += `   • Status = "Open" o "Still Open"\n`;
+                    preCountInfo += `   • Cliente = "${clientName}"\n`;
+                    preCountInfo += `\n⚠️ USA ESTE NÚMERO (${matchCount}) en tu respuesta - es el conteo exacto y verificado.\n`;
+                    preCountInfo += `${'═'.repeat(60)}\n\n`;
+                }
+            }
 
             context += `Documento ${index + 1}: "${doc.name}"\n`;
             context += `Tipo MIME: ${doc.mimeType}\n`;
             context += `Tamaño: ${contentToSend.length.toLocaleString()} caracteres ${charsToUse < contentToSend.length ? `(enviando primeros ${charsToUse.toLocaleString()})` : '(completo)'}\n`;
+            
+            if (charsToUse < contentToSend.length) {
+                context += `⚠️ ADVERTENCIA: Este documento fue truncado. Solo se enviaron los primeros ${charsToUse.toLocaleString()} caracteres de ${contentToSend.length.toLocaleString()}.\n`;
+            }
+            
+            // Agregar información de pre-conteo si está disponible
+            if (preCountInfo) {
+                context += preCountInfo;
+            }
 
             // Mostrar información de filtrado si se aplicó
             if (filterResult && filterResult.filtered) {
@@ -4819,6 +5097,19 @@ async function analyzeDocumentsWithAI(userMessage) {
                 role: 'system',
                 content: `Eres un asistente experto en análisis de datos de reclutamiento y recursos humanos.
 
+⚠️ REGLA FUNDAMENTAL - RESTRICCIÓN ABSOLUTA A DOCUMENTOS:
+• SOLO puedes responder basándote en los documentos que te proporciono
+• NO uses tu conocimiento general ni inventes información
+• NO asumas datos que no estén explícitamente en los documentos
+• Si la información NO está en los documentos, di claramente: "No encontré esa información en los documentos proporcionados"
+• NUNCA respondas con información que no puedas citar directamente de los documentos
+
+🚫 PROHIBIDO ABSOLUTAMENTE:
+• NO copies ni pegues el contenido completo de los documentos
+• NO incluyas secciones grandes de datos crudos (CSV, tablas completas, etc.)
+• NO devuelvas listas interminables de registros
+• Tu respuesta debe ser PROCESADA, ANALIZADA y SINTETIZADA - nunca cruda
+
 IMPORTANTE: MANTÉN CONSISTENCIA CON TUS RESPUESTAS ANTERIORES
 • Si ya respondiste una pregunta similar, usa los MISMOS números y criterios
 • Si el usuario pregunta "cuántas vacantes hay abiertas" varias veces, el número debe ser EL MISMO
@@ -4831,12 +5122,42 @@ ATENCIÓN A PREGUNTAS ESPECÍFICAS:
 • NO confundas el total general con subtotales de clientes individuales
 • Ejemplo: Si total es 27 y Exact Sciences tiene 15, al preguntar "vacantes de Exact Sciences" responde "15", NO "27"
 
+IMPORTANTE - DIFERENCIA ENTRE "OPEN" Y "PIPELINE":
+• Cuando preguntan por "roles OPEN" o "vacantes ABIERTAS" → busca Status="Open" o "Still Open" EXACTAMENTE
+• Cuando preguntan por "roles en PIPELINE" → pueden tener cualquier status (Open, Pipeline, Interview, etc.)
+• "¿Cuántas vacantes hay open?" = cuenta SOLO Status="Open" o "Still Open"
+• "¿Qué roles hay en pipeline?" = todos los roles en el documento Pipeline (cualquier status)
+• NO confundas el status "Pipeline" con el documento "Candidate Pipeline"
+
+IDENTIFICACIÓN DE VACANTES OPEN (MUY IMPORTANTE):
+• Una vacante está "Open" si la columna Status contiene EXACTAMENTE: "Open" o "Still Open"
+• NO incluyas: "Pipeline", "Interview", "Offer", "Hold", "On Hold", "Closed"
+• Al contar, busca en TODO el documento cada fila donde Status="Open" o "Still Open"
+• Si filtras por cliente (ej: Exact Sciences), cuenta TODAS las filas que cumplan ambas condiciones:
+  - Status = "Open" O "Still Open"
+  - Cliente = "Exact Sciences" (o el cliente solicitado)
+• EJEMPLO REAL: Para "Exact Sciences" con status "Open"/"Still Open" = 11 vacantes (no 7, no 15)
+
 REGLAS DE FILTRADO TEMPORAL:
 • Si el usuario NO especifica un trimestre o fecha (ej: "Q4", "2025", "octubre"), cuenta TODAS las vacantes en TODO el documento
 • SOLO filtra por trimestre/fecha si el usuario lo menciona EXPLÍCITAMENTE
 • "¿Cuántas vacantes hay abiertas?" = TODAS las vacantes (sin filtro de fecha)
 • "¿Cuántas vacantes hay abiertas en Q4?" = SOLO Q4 (con filtro de fecha)
 • Por defecto, NO asumas ningún período de tiempo a menos que se especifique claramente
+
+BÚSQUEDA POR TRIMESTRE:
+• Q1 = Enero, Febrero, Marzo (JAN, FEB, MAR)
+• Q2 = Abril, Mayo, Junio (APR, MAY, JUN)
+• Q3 = Julio, Agosto, Septiembre (JUL, AUG, SEP)
+• Q4 = Octubre, Noviembre, Diciembre (OCT, NOV, DEC)
+• Busca TODAS las filas que contengan el trimestre solicitado
+• NO te limites solo a la primera coincidencia - analiza TODO el documento
+
+IDENTIFICAR HIRES (CONTRATACIONES):
+• Un "hire" es una fila con Status="Closed" Y que tenga un nombre de candidato con "(aceptó)"
+• Cuando te pidan "candidatos hired" o "hires", lista TODOS los nombres que cumplan este criterio
+• Formato del nombre: "Nombre Apellido (aceptó)" - extrae solo "Nombre Apellido"
+• Si piden lista de nombres, menciona TODOS, no solo el primero
 
 ESTILO DE RESPUESTA POR DEFECTO: **CONCISO Y DIRECTO**
 
@@ -4900,42 +5221,103 @@ RESPONDE EN ESPAÑOL de forma BREVE y PROFESIONAL.`
             messages.push(...recentHistory);
         }
         
-        // Detectar si el usuario pide detalles explícitamente
-        const userWantsDetails = /detalle|explica.*más|profundiza|desglose.*completo|lista.*todo|análisis.*detallado|quiero.*saber.*más|completo|extens/i.test(userMessage);
+        // Detectar si el usuario pide detalles explícitamente o una lista de nombres
+        const userWantsDetails = /detalle|explica.*más|profundiza|desglose.*completo|lista.*todo|análisis.*detallado|quiero.*saber.*más|completo|extens|lista.*de.*nombres|nombres.*de|lista.*de.*candidatos|candidatos.*hired|haz.*lista/i.test(userMessage);
 
         // Agregar la pregunta actual con instrucciones mejoradas
         messages.push({
             role: 'user',
             content: `${context}\n\n=== PREGUNTA DEL USUARIO ===\n${userMessage}\n\n=== INSTRUCCIONES DE FORMATO ===
 
-⚡ SMART FILTERING: Si ves "FILTRADO INTELIGENTE APLICADO", el documento YA ha sido filtrado automáticamente según la consulta. Los números que cuentes son SOLO de las filas filtradas.
+🔒 RESTRICCIÓN CRÍTICA:
+• SOLO responde con información que esté EXPLÍCITAMENTE en los documentos proporcionados arriba
+• Si NO encuentras la información en los documentos, responde: "No encontré esa información en los documentos proporcionados. Los documentos que consulté fueron: [lista nombres]. ¿Necesitas que cargue otros documentos?"
+• NO inventes, asumas o uses conocimiento general
+• Al final de tu respuesta, indica SIEMPRE: "📄 Fuente: [nombre del/los documento(s)]"
+• Si el usuario menciona un documento específico (ej: "en TA Handbook"), ASEGÚRATE de buscar en ESE documento
+• Los PDFs pueden contener políticas, estructuras organizacionales, guías - léelos completamente
 
-📊 RESUMEN ESTADÍSTICO: Si hay un "RESUMEN ESTADÍSTICO RÁPIDO", puedes usar esos números como referencia rápida para responder, pero siempre verifica contra el contenido completo.
+🔢 PRE-CONTEO AUTOMÁTICO (PRIORIDAD MÁXIMA):
+• Si ves una sección "PRE-CONTEO AUTOMÁTICO (JavaScript)" en el documento, USA ESE NÚMERO
+• El pre-conteo fue realizado automáticamente en JavaScript y es 100% exacto
+• NO necesitas contar manualmente - usa el número proporcionado
+• El pre-conteo ya verificó TODAS las filas del documento completo
+• OBLIGATORIO: Usa el número del pre-conteo si está disponible
 
-Analiza TODO el contenido de los documentos (entre === CONTENIDO ${totalFiltered > 0 ? 'FILTRADO' : 'COMPLETO'} === y === FIN ===).
+📊 PROCESO DE CONTEO MANUAL (solo si NO hay pre-conteo):
+• Lee TODO el documento completo, fila por fila
+• Identifica la columna "Status" y la columna del cliente
+• Cuenta CADA fila que cumpla los criterios exactos solicitados
+• NO te detengas en las primeras filas - analiza TODO hasta el final
+• Si el conteo no coincide con ejemplos previos, revisa que estés usando los filtros correctos
+
+⚡ IMPORTANTE - CONTENIDO DEL DOCUMENTO:
+${totalFiltered > 0 ? 
+`• El documento fue FILTRADO automáticamente
+• Los números que cuentes son SOLO de las filas filtradas
+• Si ves "FILTRADO INTELIGENTE APLICADO", verifica los filtros aplicados` 
+:
+`• El documento está COMPLETO sin filtrar
+• Debes contar TODAS las filas que cumplan los criterios solicitados
+• Lee el documento de principio a fin - NO te detengas en las primeras filas
+• Para "vacantes Open con Exact Sciences" = cuenta TODAS las filas donde Status="Open" O "Still Open" Y Cliente="Exact Sciences"`}
+
+📊 RESUMEN ESTADÍSTICO: 
+${isSimpleCountQuery ? 
+`⚠️ IGNORA COMPLETAMENTE EL "RESUMEN ESTADÍSTICO RÁPIDO" para esta consulta
+• NO uses los números del resumen estadístico
+• CUENTA MANUALMENTE todas las filas del documento
+• El resumen puede estar desactualizado o incorrecto` 
+: 
+`Si hay un "RESUMEN ESTADÍSTICO RÁPIDO", úsalo SOLO como referencia inicial, pero SIEMPRE verifica contra el contenido completo del documento.`}
+
+⚠️ MUY IMPORTANTE: 
+• Analiza TODO el contenido de los documentos (entre === CONTENIDO === y === FIN ===)
+• NO te limites a las primeras 10-20 filas
+• El documento puede tener cientos de filas - lee hasta el final
+• Cuenta CADA fila que cumpla los criterios, no solo las primeras que encuentres
+• Si el documento tiene más de 100 filas, asegúrate de leer TODAS antes de dar tu respuesta
 
 ${userWantsDetails ?
-`🔍 USUARIO PIDIÓ DETALLES → Respuesta DETALLADA permitida:
-• Lista completa de elementos
+`🔍 USUARIO PIDIÓ DETALLES O LISTA → Respuesta DETALLADA permitida:
+• Si piden "lista de nombres" o "candidatos hired": Lista TODOS los nombres encontrados (uno por línea)
+• Lista completa de elementos relevantes
 • Contexto adicional y explicaciones
-• Fechas específicas
+• Fechas específicas cuando sean relevantes
 • Comparaciones y análisis profundo
-• Múltiples secciones si es necesario`
+• Máximo 20 líneas para listas de nombres
+• Formato para lista de nombres: "• Nombre Apellido (Rol, Empresa, Mes)"`
 :
 `📏 LONGITUD MÁXIMA: 5 LÍNEAS
 
 ⚠️ RESTRICCIÓN ESTRICTA: NO MÁS DE 5 LÍNEAS TOTALES
+
+🚫 ABSOLUTAMENTE PROHIBIDO EN TU RESPUESTA:
+• Copiar/pegar datos crudos del documento (CSV, tablas, registros)
+• Incluir contenido sin procesar
+• Listar todos los registros del documento
+• Devolver más de 300 palabras en tu respuesta
+
+✅ TU RESPUESTA DEBE SER:
+• Un análisis procesado y sintetizado
+• Números específicos y claros
+• Máximo 5 líneas de texto
 
 FORMATO OBLIGATORIO:
 Línea 1: [Número principal] + [contexto breve]
 Líneas 2-3: • Desglose en 2-3 categorías PRINCIPALES (agrupadas)
 Líneas 4-5: Dato adicional SOLO si es crítico
 
-EJEMPLO PERFECTO:
+EJEMPLOS PERFECTOS:
 "Hay 27 vacantes abiertas en total.
 • Exact Sciences: 15 posiciones (56%)
 • iTJ: 8 posiciones (30%)
 • Otros: 4 posiciones (14%)"
+
+"Carlos hizo 8 hires en Q3.
+• Exact Sciences: 6 posiciones (75%) - incluyendo 2 Java, 2 Fullstack, 1 Python, 1 BA
+• Otros: 2 posiciones (25%) - Dexcom (1), iTJ (1)
+📄 Fuente: Pipeline General Candidates"
 
 ❌ NO HAGAS (muy importante):
 - Más de 5 líneas
@@ -5127,7 +5509,39 @@ async function showDriveFilePicker() {
             <div class="file-picker">
                 <h4>📂 Selecciona los documentos a cargar:</h4>
                 ${warningHTML}
-                <div class="file-list">
+                
+                <!-- Controles de búsqueda, filtrado y ordenamiento -->
+                <div class="file-controls">
+                    <div class="search-box">
+                        <input type="text" id="fileSearchInput" class="file-search" placeholder="🔍 Buscar por nombre...">
+                    </div>
+                    <div class="filter-sort-controls">
+                        <select id="fileTypeFilter" class="file-filter">
+                            <option value="all">📁 Todos los tipos</option>
+                            <option value="google-apps.document">📝 Google Docs</option>
+                            <option value="google-apps.spreadsheet">📊 Google Sheets</option>
+                            <option value="google-apps.presentation">📽️ Google Slides</option>
+                            <option value="pdf">📕 PDF</option>
+                            <option value="word">📘 Word</option>
+                            <option value="excel">📗 Excel</option>
+                            <option value="powerpoint">📽️ PowerPoint</option>
+                            <option value="text">📃 Texto</option>
+                        </select>
+                        <select id="fileSortOrder" class="file-sort">
+                            <option value="name-asc">📝 Nombre (A-Z)</option>
+                            <option value="name-desc">📝 Nombre (Z-A)</option>
+                            <option value="date-desc">📅 Más reciente</option>
+                            <option value="date-asc">📅 Más antiguo</option>
+                            <option value="type-asc">📂 Tipo (A-Z)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="file-stats" id="fileStats">
+                    Mostrando <strong>${files.length}</strong> de <strong>${files.length}</strong> documentos
+                </div>
+                
+                <div class="file-list" id="fileListContainer">
         `;
         
         files.forEach(file => {
@@ -5164,7 +5578,11 @@ async function showDriveFilePicker() {
             else fileType = 'Documento';
             
             pickerHTML += `
-                <label class="file-item">
+                <label class="file-item" 
+                       data-name="${file.name.toLowerCase()}" 
+                       data-mimetype="${file.mimeType}" 
+                       data-filetype="${fileType}"
+                       data-modified="${file.modifiedTime}">
                     <input type="checkbox" value="${file.id}" data-name="${file.name}" data-mimetype="${file.mimeType}">
                     <span class="file-info">
                         <strong>${icon} ${file.name}</strong>
@@ -5228,6 +5646,85 @@ async function showDriveFilePicker() {
             apiStatus.innerHTML = '<div class="info">Operación cancelada</div>';
             apiStatus.className = 'drive-status info';
         });
+        
+        // Event listeners para búsqueda, filtrado y ordenamiento
+        const fileSearchInput = document.getElementById('fileSearchInput');
+        const fileTypeFilter = document.getElementById('fileTypeFilter');
+        const fileSortOrder = document.getElementById('fileSortOrder');
+        const fileListContainer = document.getElementById('fileListContainer');
+        const fileStats = document.getElementById('fileStats');
+        
+        function filterAndSortFiles() {
+            const searchTerm = fileSearchInput.value.toLowerCase().trim();
+            const filterType = fileTypeFilter.value;
+            const sortOrder = fileSortOrder.value;
+            
+            // Obtener todos los items de archivo
+            const fileItems = Array.from(fileListContainer.querySelectorAll('.file-item'));
+            
+            // Filtrar archivos
+            let visibleCount = 0;
+            fileItems.forEach(item => {
+                const itemName = item.getAttribute('data-name');
+                const itemMimeType = item.getAttribute('data-mimetype');
+                
+                // Aplicar búsqueda
+                const matchesSearch = searchTerm === '' || itemName.includes(searchTerm);
+                
+                // Aplicar filtro de tipo
+                let matchesFilter = true;
+                if (filterType !== 'all') {
+                    if (filterType === 'word') {
+                        matchesFilter = itemMimeType.includes('word') || itemMimeType.includes('wordprocessing') || itemMimeType.includes('msword');
+                    } else if (filterType === 'excel') {
+                        matchesFilter = itemMimeType.includes('excel') || itemMimeType.includes('spreadsheet') && !itemMimeType.includes('google-apps');
+                    } else if (filterType === 'powerpoint') {
+                        matchesFilter = itemMimeType.includes('powerpoint') || itemMimeType.includes('presentation') && !itemMimeType.includes('google-apps');
+                    } else {
+                        matchesFilter = itemMimeType.includes(filterType);
+                    }
+                }
+                
+                // Mostrar u ocultar elemento
+                if (matchesSearch && matchesFilter) {
+                    item.style.display = '';
+                    visibleCount++;
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+            
+            // Ordenar archivos visibles
+            const visibleItems = fileItems.filter(item => item.style.display !== 'none');
+            
+            visibleItems.sort((a, b) => {
+                if (sortOrder === 'name-asc') {
+                    return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'));
+                } else if (sortOrder === 'name-desc') {
+                    return b.getAttribute('data-name').localeCompare(a.getAttribute('data-name'));
+                } else if (sortOrder === 'date-desc') {
+                    return new Date(b.getAttribute('data-modified')) - new Date(a.getAttribute('data-modified'));
+                } else if (sortOrder === 'date-asc') {
+                    return new Date(a.getAttribute('data-modified')) - new Date(b.getAttribute('data-modified'));
+                } else if (sortOrder === 'type-asc') {
+                    return a.getAttribute('data-filetype').localeCompare(b.getAttribute('data-filetype'));
+                }
+                return 0;
+            });
+            
+            // Re-ordenar elementos en el DOM
+            visibleItems.forEach(item => {
+                fileListContainer.appendChild(item);
+            });
+            
+            // Actualizar estadísticas
+            fileStats.innerHTML = `Mostrando <strong>${visibleCount}</strong> de <strong>${files.length}</strong> documentos`;
+        }
+        
+        // Agregar event listeners
+        fileSearchInput.addEventListener('input', filterAndSortFiles);
+        fileTypeFilter.addEventListener('change', filterAndSortFiles);
+        fileSortOrder.addEventListener('change', filterAndSortFiles);
         
     } catch (error) {
         apiStatus.innerHTML = `<div class="error">✗ Error al cargar archivos: ${error.message}</div>`;
