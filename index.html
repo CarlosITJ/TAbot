@@ -7,6 +7,12 @@
     <link rel="stylesheet" href="style.css">
     <!-- Solo cargamos Google Identity Services, NO gapi (causa errores con OAuth 2.0 nuevo) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- PDF.js para lectura de PDFs -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- mammoth.js para lectura de DOCX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- Tesseract.js para OCR -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 </head>
 <body>
     <div class="chat-container">
@@ -119,7 +125,15 @@
                 </div>
                 <div id="driveStatus" class="drive-status"></div>
                 <div id="documentsList" class="documents-list"></div>
-                <button id="closeSettingsButton" class="close-button">Cerrar</button>
+                <div id="cacheStats" class="cache-stats">
+                    <h4>💾 Caché de Documentos</h4>
+                    <p id="cacheInfo">Cargando información del caché...</p>
+                    <button id="clearCacheButton" class="secondary-button">🗑️ Limpiar Caché</button>
+                </div>
+                <div class="settings-actions">
+                    <button id="clearConversationButton" class="secondary-button">🗑️ Limpiar Conversación</button>
+                    <button id="closeSettingsButton" class="close-button">Cerrar</button>
+                </div>
             </div>
         </div>
         <div class="chat-messages" id="chatMessages">

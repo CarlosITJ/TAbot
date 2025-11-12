@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurar xAI (Grok) - Respuestas Inteligentes</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #ff6b6b;
+            text-align: center;
+        }
+        .problem {
+            background: #fff3cd;
+            color: #856404;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+        }
+        .solution {
+            background: #d4edda;
+            color: #155724;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #28a745;
+            margin: 20px 0;
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            border-left: 4px solid #ff6b6b;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #ff6b6b;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #17a2b8;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin: 10px 0;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: scale(1.05);
+        }
+        .copy-box {
+            background: #2d2d2d;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 14px;
+            text-align: center;
+            margin: 15px 0;
+            cursor: pointer;
+            border: 3px solid #28a745;
+        }
+        .copy-box:hover {
+            background: #3d3d3d;
+        }
+        ol {
+            padding-left: 25px;
+        }
+        ol li {
+            margin: 15px 0;
+            line-height: 1.8;
+        }
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .comparison-item {
+            padding: 20px;
+            border-radius: 10px;
+        }
+        .without-ai {
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+        }
+        .with-ai {
+            background: #d4edda;
+            border: 2px solid #28a745;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Configurar xAI (Grok)</h1>
+        <h2 style="text-align: center; color: #666;">De Respuestas Vagas a Respuestas Inteligentes</h2>
+
+        <div class="problem">
+            <h3>❌ El Problema Actual</h3>
+            <p><strong>Tu chatbot NO tiene configurado xAI (Grok)</strong>, por eso da respuestas vagas y genéricas.</p>
+            <ul>
+                <li>❌ Solo usa búsqueda simple de texto</li>
+                <li>❌ No puede analizar ni interpretar datos</li>
+                <li>❌ No puede contar, sumar o calcular</li>
+                <li>❌ No entiende contexto ni relaciones</li>
+                <li>❌ Respuestas superficiales e incompletas</li>
+            </ul>
+        </div>
+
+        <div class="comparison">
+            <div class="comparison-item without-ai">
+                <h4 style="color: #dc3545; margin-top: 0;">❌ SIN xAI (Grok)</h4>
+                <p><strong>Pregunta:</strong> "¿Qué roles hay open en pipeline de Q4?"</p>
+                <p><strong>Respuesta:</strong></p>
+                <p style="font-size: 0.9em;">"Basado en el análisis... los roles incluyen... candidatos como... datos truncados... no hay hires confirmados..."</p>
+                <p><strong>Resultado:</strong> Vago, incompleto, confuso</p>
+            </div>
+            <div class="comparison-item with-ai">
+                <h4 style="color: #28a745; margin-top: 0;">✅ CON xAI (Grok)</h4>
+                <p><strong>Pregunta:</strong> "¿Qué roles hay open en pipeline de Q4?"</p>
+                <p><strong>Respuesta:</strong></p>
+                <p style="font-size: 0.9em;">"En Q4 2025 hay 27 roles abiertos distribuidos así:
+                - Dexcom: 8 posiciones (5 Sr, 3 Mid)
+                - Exact Sciences: 12 posiciones (7 Sr, 5 Mid)
+                - Neurocrine: 7 posiciones (4 Sr, 3 Mid)
+                
+                Los roles más demandados son FullStack (9), DevOps (5) y Data Scientists (4)..."</p>
+                <p><strong>Resultado:</strong> Específico, detallado, útil</p>
+            </div>
+        </div>
+
+        <div class="solution">
+            <h3>✅ La Solución: Configurar xAI (Grok)</h3>
+            <p>Con xAI (Grok), tu chatbot se convierte en un <strong>asistente inteligente</strong> que:</p>
+            <ul>
+                <li>✅ <strong>Analiza profundamente</strong> el contenido de tus documentos</li>
+                <li>✅ <strong>Cuenta y calcula</strong> automáticamente (vacantes, candidatos, etc.)</li>
+                <li>✅ <strong>Compara y relaciona</strong> datos entre hojas y documentos</li>
+                <li>✅ <strong>Responde preguntas complejas</strong> con precisión</li>
+                <li>✅ <strong>Genera resúmenes</strong> y estadísticas</li>
+                <li>✅ <strong>Da recomendaciones</strong> basadas en datos</li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <h3>🎯 PASO 1: Obtén tu API Key de xAI</h3>
+            <button onclick="abrirXAI()">🚀 Ir a x.ai/api</button>
+            <ol>
+                <li>Haz clic en el botón de arriba o ve a <code>https://x.ai/api</code></li>
+                <li>Inicia sesión o crea una cuenta (gratis)</li>
+                <li>Ve a la sección de <strong>"API Keys"</strong></li>
+                <li>Haz clic en <strong>"Create New API Key"</strong></li>
+                <li>Copia la API Key (empieza con <code>xai-...</code>)</li>
+            </ol>
+            <div class="info">
+                <p><strong>💰 Costo:</strong></p>
+                <ul>
+                    <li><strong>Modelo recomendado:</strong> Grok-beta (más económico)</li>
+                    <li><strong>Precio aproximado:</strong> $5-10 USD por 1000 preguntas</li>
+                    <li><strong>Créditos gratis:</strong> xAI suele dar créditos iniciales gratis</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="step">
+            <h3>⚙️ PASO 2: Configura xAI en el Chatbot</h3>
+            <button onclick="abrirChatbot()">🤖 Abrir Chatbot TAbot</button>
+            <ol>
+                <li>En el chatbot, haz clic en <strong>⚙️ Configuración</strong></li>
+                <li>Ve a la pestaña <strong>"Configuración API"</strong></li>
+                <li>Busca el campo <strong>"API Key de xAI (Grok)"</strong></li>
+                <li>Pega tu API Key (la que empieza con <code>xai-...</code>)</li>
+                <li>Haz clic en <strong>"Guardar Configuración"</strong></li>
+                <li>Verás el mensaje: <strong>"🤖 IA de xAI (Grok) activada!"</strong></li>
+                <li>Aparecerá un indicador <strong>"⚡ IA Activa"</strong> en el header</li>
+            </ol>
+        </div>
+
+        <div class="step">
+            <h3>✅ PASO 3: Prueba la Diferencia</h3>
+            <p>Haz las mismas preguntas de antes y nota la diferencia:</p>
+            
+            <h4>Preguntas de Prueba:</h4>
+            <ol>
+                <li><strong>"¿Qué roles hay open en pipeline de Q4?"</strong><br>
+                    <small>Ahora obtendrás números exactos y detalles por empresa</small>
+                </li>
+                <li><strong>"¿Cuántas vacantes hay abiertas en total?"</strong><br>
+                    <small>Conteo preciso y desglose por seniority</small>
+                </li>
+                <li><strong>"Dame estadísticas de Dexcom"</strong><br>
+                    <small>Análisis completo: vacantes, candidatos, tiempos, etc.</small>
+                </li>
+                <li><strong>"¿Qué empresa tiene más vacantes senior?"</strong><br>
+                    <small>Comparación inteligente entre empresas</small>
+                </li>
+                <li><strong>"Resume el pipeline de Q4"</strong><br>
+                    <small>Resumen ejecutivo con insights clave</small>
+                </li>
+            </ol>
+        </div>
+
+        <div class="info">
+            <h3>🎓 Diferencias Clave</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr style="background: #f8f9fa;">
+                    <th style="padding: 15px; border: 1px solid #dee2e6;">Característica</th>
+                    <th style="padding: 15px; border: 1px solid #dee2e6;">Sin xAI</th>
+                    <th style="padding: 15px; border: 1px solid #dee2e6;">Con xAI (Grok)</th>
+                </tr>
+                <tr>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;"><strong>Análisis de datos</strong></td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">❌ Búsqueda simple</td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">✅ Análisis profundo</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;"><strong>Contar/Sumar</strong></td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">❌ No puede</td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">✅ Automático</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;"><strong>Comparaciones</strong></td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">❌ No puede</td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">✅ Inteligente</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;"><strong>Resúmenes</strong></td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">❌ Listados básicos</td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">✅ Ejecutivos detallados</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;"><strong>Contexto</strong></td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">❌ Fragmentado</td>
+                    <td style="padding: 15px; border: 1px solid #dee2e6;">✅ Completo (2M tokens)</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="step">
+            <h3>💡 Ejemplo Real: Antes vs Después</h3>
+            
+            <h4 style="color: #dc3545;">❌ ANTES (Sin xAI):</h4>
+            <div style="background: #f8d7da; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                <p><strong>Tú:</strong> "¿Cuántas vacantes hay abiertas en Dexcom?"</p>
+                <p><strong>Bot:</strong> "Basado en el documento, hay roles en pipeline... candidatos como Israel Angeles, Francisco Hernandez... datos truncados... no se especifican cantidades exactas."</p>
+                <p style="color: #721c24; margin-top: 10px;"><strong>Resultado:</strong> ❌ Vago, no responde la pregunta</p>
+            </div>
+
+            <h4 style="color: #28a745; margin-top: 30px;">✅ DESPUÉS (Con xAI):</h4>
+            <div style="background: #d4edda; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                <p><strong>Tú:</strong> "¿Cuántas vacantes hay abiertas en Dexcom?"</p>
+                <p><strong>Bot con Grok:</strong> "Dexcom tiene actualmente <strong>8 vacantes abiertas</strong> en el pipeline de Q4 2025:
+                
+                <strong>Por Seniority:</strong>
+                - Senior: 5 posiciones (62.5%)
+                - Mid: 3 posiciones (37.5%)
+                
+                <strong>Por Rol:</strong>
+                - FullStack Engineer: 3 posiciones
+                - DevOps Engineer: 2 posiciones
+                - Data Scientist: 2 posiciones
+                - Product Manager: 1 posición
+                
+                <strong>Estado:</strong> 6 en proceso activo, 2 en hold esperando feedback del cliente.
+                
+                <strong>Tiempo promedio de cierre:</strong> 45 días según datos históricos."</p>
+                <p style="color: #155724; margin-top: 10px;"><strong>Resultado:</strong> ✅ Específico, detallado, útil</p>
+            </div>
+        </div>
+
+        <div class="solution">
+            <h3>🎉 Beneficios de xAI (Grok)</h3>
+            <ul>
+                <li>✅ <strong>Respuestas 10x más precisas</strong> - Datos exactos, no aproximaciones</li>
+                <li>✅ <strong>Ahorro de tiempo</strong> - No necesitas buscar manualmente en las hojas</li>
+                <li>✅ <strong>Insights automáticos</strong> - Descubre patrones que no habías visto</li>
+                <li>✅ <strong>Multilingüe</strong> - Responde en español perfectamente</li>
+                <li>✅ <strong>Aprende de contexto</strong> - Entiende tu negocio y terminología</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <h3>🆘 ¿Problemas o Preguntas?</h3>
+            <p><strong>¿No tienes presupuesto para xAI?</strong></p>
+            <p>xAI suele ofrecer créditos gratuitos al registrarte. Pruébalo primero sin costo.</p>
+            
+            <p style="margin-top: 20px;"><strong>¿Preocupado por la privacidad?</strong></p>
+            <p>xAI procesa los datos de forma segura y no los almacena. Tu información solo se usa para generar respuestas.</p>
+            
+            <p style="margin-top: 20px;"><strong>¿Cuánto cuesta realmente?</strong></p>
+            <p>Para uso típico de TA (50-100 consultas/día), el costo mensual es de ~$10-20 USD. Mucho menos que el tiempo ahorrado.</p>
+        </div>
+    </div>
+
+    <script>
+        function abrirXAI() {
+            window.open('https://x.ai/api', '_blank');
+        }
+
+        function abrirChatbot() {
+            window.open('http://localhost:8000/', '_blank');
+        }
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 Prueba de Filtros - TAbot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-size: 1.1em;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .section {
+            margin-bottom: 35px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border-left: 5px solid #f5576c;
+        }
+        
+        .section h2 {
+            color: #f5576c;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        
+        .error-box {
+            background: #ffebee;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid #d32f2f;
+            margin: 20px 0;
+        }
+        
+        .error-box h3 {
+            color: #d32f2f;
+            margin-bottom: 10px;
+        }
+        
+        .success-box {
+            background: #e8f5e9;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid #4caf50;
+            margin: 20px 0;
+        }
+        
+        .success-box h3 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+        
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .wrong {
+            background: #ffebee;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #d32f2f;
+        }
+        
+        .wrong h4 {
+            color: #d32f2f;
+            margin-bottom: 10px;
+        }
+        
+        .correct {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #4caf50;
+        }
+        
+        .correct h4 {
+            color: #2e7d32;
+            margin-bottom: 10px;
+        }
+        
+        .question {
+            background: #e3f2fd;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+            color: #1976d2;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .expected {
+            background: #e8f5e9;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+            color: #388e3c;
+            border-left: 4px solid #4caf50;
+        }
+        
+        .test-step {
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+        }
+        
+        .test-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #f5576c;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .highlight {
+            background: #fff9c4;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+        
+        .button {
+            display: inline-block;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            margin: 10px 5px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(245, 87, 108, 0.4);
+        }
+        
+        .actions {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e9ecef;
+        }
+        
+        ul {
+            margin-left: 20px;
+        }
+        
+        li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th {
+            background: #f5576c;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Prueba de Filtros Temporales</h1>
+        <p class="subtitle">Verifica que el chatbot NO filtre por fecha cuando no se especifica</p>
+        
+        <div class="section">
+            <h2>🔴 Problema Detectado</h2>
+            
+            <div class="error-box">
+                <h3>❌ Error: Filtrado Automático por Q4</h3>
+                <p>El chatbot estaba <strong>filtrando automáticamente por Q4 2025</strong> cuando el usuario solo preguntaba por "vacantes abiertas" sin especificar ningún trimestre.</p>
+            </div>
+            
+            <div class="comparison">
+                <div class="wrong">
+                    <h4>❌ Respuesta Incorrecta</h4>
+                    <div class="question">
+                        "¿Cuántas vacantes hay abiertas?"
+                    </div>
+                    <p style="margin-top: 10px; color: #d32f2f; font-weight: 600;">
+                        "En Q4 2025 hay 10 roles abiertos..."
+                    </p>
+                    <p style="margin-top: 10px; font-size: 0.9em;">
+                        <strong>Problema:</strong> El usuario NO pidió filtrar por Q4, pero el chatbot lo hizo automáticamente.
+                    </p>
+                </div>
+                
+                <div class="correct">
+                    <h4>✅ Respuesta Correcta</h4>
+                    <div class="question">
+                        "¿Cuántas vacantes hay abiertas?"
+                    </div>
+                    <p style="margin-top: 10px; color: #2e7d32; font-weight: 600;">
+                        "Hay 27 vacantes abiertas (en todo el documento)..."
+                    </p>
+                    <p style="margin-top: 10px; font-size: 0.9em;">
+                        <strong>Correcto:</strong> Cuenta TODAS las vacantes sin filtrar por fecha.
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>✅ Reglas Implementadas</h2>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Pregunta del Usuario</th>
+                        <th>Comportamiento Esperado</th>
+                        <th>Filtro</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>"¿Cuántas vacantes hay abiertas?"</td>
+                        <td>Cuenta TODAS las vacantes</td>
+                        <td style="color: #d32f2f; font-weight: 600;">SIN filtro</td>
+                    </tr>
+                    <tr>
+                        <td>"Total de vacantes open"</td>
+                        <td>Cuenta TODAS las vacantes</td>
+                        <td style="color: #d32f2f; font-weight: 600;">SIN filtro</td>
+                    </tr>
+                    <tr>
+                        <td>"¿Cuántas vacantes hay abiertas <strong>en Q4</strong>?"</td>
+                        <td>Cuenta SOLO Q4</td>
+                        <td style="color: #2e7d32; font-weight: 600;">CON filtro Q4</td>
+                    </tr>
+                    <tr>
+                        <td>"¿Cuántas vacantes hay abiertas <strong>en 2025</strong>?"</td>
+                        <td>Cuenta SOLO 2025</td>
+                        <td style="color: #2e7d32; font-weight: 600;">CON filtro 2025</td>
+                    </tr>
+                    <tr>
+                        <td>"¿Cuántas vacantes hay abiertas <strong>en octubre</strong>?"</td>
+                        <td>Cuenta SOLO octubre</td>
+                        <td style="color: #2e7d32; font-weight: 600;">CON filtro octubre</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="success-box">
+                <h3>✅ Regla Principal</h3>
+                <p><strong>SOLO filtra por fecha si el usuario lo menciona EXPLÍCITAMENTE.</strong></p>
+                <p style="margin-top: 10px;">Por defecto, sin mención de fecha = TODAS las vacantes en TODO el documento.</p>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>🧪 Prueba de Validación</h2>
+            
+            <div class="test-step">
+                <span class="test-number">1</span>
+                <strong>Recarga el chatbot</strong>
+                <ul style="margin-top: 10px;">
+                    <li>Presiona <code>Ctrl + F5</code></li>
+                    <li>Ve a Configuración → Limpiar Conversación</li>
+                </ul>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">2</span>
+                <strong>Pregunta SIN mencionar fecha</strong>
+                <div class="question" style="margin-top: 10px;">
+                    ❓ "¿Cuántas vacantes hay abiertas?"
+                </div>
+                <div class="expected">
+                    ✅ Debe responder con el TOTAL GENERAL (ej: 27 vacantes)<br>
+                    ✅ NO debe mencionar "Q4" ni ningún trimestre específico<br>
+                    ✅ Debe incluir vacantes de TODAS las fechas
+                </div>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">3</span>
+                <strong>Confirma consistencia</strong>
+                <div class="question" style="margin-top: 10px;">
+                    ❓ "Total de vacantes open"
+                </div>
+                <div class="expected">
+                    ✅ Debe dar el MISMO número (ej: 27 vacantes)
+                </div>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">4</span>
+                <strong>Ahora SÍ pide filtrar por Q4</strong>
+                <div class="question" style="margin-top: 10px;">
+                    ❓ "¿Cuántas vacantes hay abiertas en Q4?"
+                </div>
+                <div class="expected">
+                    ✅ Debe responder con SOLO Q4 (ej: 10 vacantes)<br>
+                    ✅ Debe mencionar explícitamente "Q4"<br>
+                    ✅ El número debe ser MENOR que el total general
+                </div>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">5</span>
+                <strong>Verifica que el filtro persiste</strong>
+                <div class="question" style="margin-top: 10px;">
+                    ❓ "Total de vacantes open en Q4"
+                </div>
+                <div class="expected">
+                    ✅ Debe dar el MISMO número que la pregunta anterior (ej: 10 vacantes)
+                </div>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📊 Números Esperados</h2>
+            
+            <p>Basado en tus pruebas anteriores:</p>
+            
+            <table style="margin-top: 15px;">
+                <thead>
+                    <tr>
+                        <th>Filtro</th>
+                        <th>Número Esperado</th>
+                        <th>Notas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>SIN filtro</strong> (todas las vacantes)</td>
+                        <td style="font-size: 1.2em; font-weight: 600; color: #2e7d32;">~27 vacantes</td>
+                        <td>Status: "OPEN" o "Still Open" en TODO el documento</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CON filtro Q4 2025</strong></td>
+                        <td style="font-size: 1.2em; font-weight: 600; color: #1976d2;">~10 vacantes</td>
+                        <td>Status: "OPEN" o "Still Open" SOLO en Q4</td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" style="font-size: 0.9em; color: #666; padding-top: 15px;">
+                            <strong>Nota:</strong> Los números exactos pueden variar según el documento, pero la diferencia debe ser clara: SIN filtro &gt; CON filtro Q4
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>🎯 Criterios de Éxito</h2>
+            
+            <div class="success-box">
+                <h3>✅ Prueba exitosa si:</h3>
+                <ul style="margin-top: 10px;">
+                    <li>Pregunta SIN fecha → Respuesta con TOTAL GENERAL (27 vacantes)</li>
+                    <li>Pregunta repetida SIN fecha → MISMO número (27 vacantes)</li>
+                    <li>Pregunta CON "Q4" → Número MENOR (10 vacantes)</li>
+                    <li>La respuesta NO menciona trimestre si NO se preguntó por uno</li>
+                    <li>La respuesta SÍ menciona trimestre si se preguntó explícitamente</li>
+                </ul>
+            </div>
+            
+            <div class="error-box">
+                <h3>❌ Prueba fallida si:</h3>
+                <ul style="margin-top: 10px;">
+                    <li>Pregunta SIN fecha → Respuesta menciona "Q4" o filtra automáticamente</li>
+                    <li>Los números son inconsistentes para la misma pregunta</li>
+                    <li>El número con filtro Q4 es igual al total general</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="actions">
+            <a href="http://localhost:8000/" class="button" target="_blank">
+                🚀 Abrir Chatbot y Probar
+            </a>
+        </div>
+    </div>
+</body>
+</html>
+

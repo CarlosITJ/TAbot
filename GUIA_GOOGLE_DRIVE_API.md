@@ -11,12 +11,19 @@ Esta guía te ayudará a configurar Google Drive API para que el chatbot pueda a
 5. Ingresa un nombre para el proyecto (ej: "Chatbot Drive")
 6. Haz clic en "CREAR"
 
-## Paso 2: Habilitar Google Drive API
+## Paso 2: Habilitar Google Drive API y Google Sheets API
 
+### Google Drive API
 1. En el menú lateral, ve a "APIs y servicios" > "Biblioteca"
 2. Busca "Google Drive API"
 3. Haz clic en "Google Drive API"
 4. Haz clic en el botón "HABILITAR"
+
+### Google Sheets API (Para soporte multi-hoja completo)
+1. En la misma biblioteca, busca "Google Sheets API"
+2. Haz clic en "Google Sheets API"
+3. Haz clic en el botón "HABILITAR"
+4. **IMPORTANTE**: Esto es necesario para que el chatbot pueda leer todas las hojas de tus documentos de Google Sheets, no solo la primera.
 
 ## Paso 3: Crear Credenciales OAuth 2.0
 

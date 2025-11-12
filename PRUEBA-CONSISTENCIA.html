@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 Prueba de Consistencia - TAbot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .subtitle {
+            font-size: 1.1em;
+            color: #666;
+            margin-bottom: 30px;
+        }
+        
+        .section {
+            margin-bottom: 35px;
+            padding: 25px;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border-left: 5px solid #667eea;
+        }
+        
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+        
+        .test-step {
+            margin: 15px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+        }
+        
+        .test-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background: #667eea;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .question {
+            background: #e3f2fd;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+            color: #1976d2;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .expected {
+            background: #e8f5e9;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-weight: 500;
+            color: #388e3c;
+            border-left: 4px solid #4caf50;
+        }
+        
+        .warning {
+            background: #fff3e0;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #ff9800;
+            color: #e65100;
+        }
+        
+        .success {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #4caf50;
+            color: #1b5e20;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .comparison-table th {
+            background: #667eea;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .comparison-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e9ecef;
+        }
+        
+        .comparison-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .before {
+            color: #d32f2f;
+            font-weight: 500;
+        }
+        
+        .after {
+            color: #388e3c;
+            font-weight: 500;
+        }
+        
+        code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .button {
+            display: inline-block;
+            padding: 15px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 10px;
+            font-weight: 600;
+            margin: 10px 5px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            cursor: pointer;
+            font-size: 1em;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .button-secondary {
+            background: #6c757d;
+        }
+        
+        .actions {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #e9ecef;
+        }
+        
+        ul {
+            margin-left: 20px;
+        }
+        
+        li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+        
+        .highlight {
+            background: #fff9c4;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Prueba de Consistencia</h1>
+        <p class="subtitle">Verifica que el chatbot dé respuestas consistentes con historial de conversación</p>
+        
+        <div class="section">
+            <h2>📋 Prueba Principal: Consistencia de Números</h2>
+            
+            <div class="test-step">
+                <span class="test-number">1</span>
+                <strong>Abre el chatbot</strong>
+                <p style="margin-top: 10px;">Presiona el botón de abajo para abrir el chatbot con los cambios implementados.</p>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">2</span>
+                <strong>Recarga y limpia caché</strong>
+                <ul style="margin-top: 10px;">
+                    <li>Presiona <code>Ctrl + F5</code> para recargar</li>
+                    <li>Ve a Configuración → Limpiar Caché</li>
+                    <li>Ve a Configuración → Limpiar Conversación</li>
+                </ul>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">3</span>
+                <strong>Haz estas 3 preguntas seguidas:</strong>
+                
+                <div class="question">
+                    ❓ Pregunta 1: "¿Cuántas vacantes hay abiertas?"
+                </div>
+                <div class="expected">
+                    ✅ Anota el número (ejemplo: 12 vacantes)
+                </div>
+                
+                <div class="question" style="margin-top: 15px;">
+                    ❓ Pregunta 2: "Total de vacantes open"
+                </div>
+                <div class="expected">
+                    ✅ Debe dar el MISMO número (12 vacantes)
+                </div>
+                
+                <div class="question" style="margin-top: 15px;">
+                    ❓ Pregunta 3: "Dame el número de vacantes abiertas"
+                </div>
+                <div class="expected">
+                    ✅ Debe dar el MISMO número (12 vacantes)
+                </div>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">4</span>
+                <strong>Verifica la consistencia</strong>
+                <p style="margin-top: 10px;">Las <span class="highlight">3 respuestas deben dar el MISMO número</span>.</p>
+            </div>
+            
+            <div class="success">
+                <strong>✅ Prueba exitosa si:</strong>
+                <ul style="margin-top: 10px;">
+                    <li>Las 3 respuestas tienen el <strong>mismo número</strong></li>
+                    <li>Usan los <strong>mismos criterios</strong> (ej: solo "OPEN", no "Pipeline")</li>
+                    <li>Las respuestas son <strong>concisas</strong> (2-5 líneas)</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>🔄 Prueba de Nueva Conversación</h2>
+            
+            <div class="test-step">
+                <span class="test-number">1</span>
+                <strong>Limpia la conversación</strong>
+                <p style="margin-top: 10px;">Ve a Configuración → <code>Limpiar Conversación</code></p>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">2</span>
+                <strong>Pregunta de nuevo</strong>
+                <div class="question" style="margin-top: 10px;">
+                    ❓ "¿Cuántas vacantes hay abiertas?"
+                </div>
+            </div>
+            
+            <div class="test-step">
+                <span class="test-number">3</span>
+                <strong>Resultado esperado</strong>
+                <ul style="margin-top: 10px;">
+                    <li>El número puede ser el mismo o diferente (empezó una nueva conversación)</li>
+                    <li>Pero dentro de esta NUEVA conversación, será consistente</li>
+                    <li>El historial anterior se borró correctamente</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>📊 Comparación: Antes vs Ahora</h2>
+            
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Aspecto</th>
+                        <th>Antes (Sin Historial)</th>
+                        <th>Ahora (Con Historial)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Pregunta 1</strong></td>
+                        <td class="before">27 vacantes</td>
+                        <td class="after">12 vacantes</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pregunta 2</strong></td>
+                        <td class="before">8 vacantes (diferente ❌)</td>
+                        <td class="after">12 vacantes (mismo ✅)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Pregunta 3</strong></td>
+                        <td class="before">12 vacantes (diferente ❌)</td>
+                        <td class="after">12 vacantes (mismo ✅)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Consistencia</strong></td>
+                        <td class="before">❌ Números diferentes</td>
+                        <td class="after">✅ Mismo número</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Criterios</strong></td>
+                        <td class="before">❌ Variables (OPEN/Pipeline/Hold)</td>
+                        <td class="after">✅ Definidos (solo OPEN)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Experiencia</strong></td>
+                        <td class="before">❌ Confusa</td>
+                        <td class="after">✅ Confiable</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="section">
+            <h2>🔍 Ver el Historial en Consola</h2>
+            
+            <p>Abre la consola del navegador (<code>F12</code>) y ejecuta:</p>
+            
+            <div style="background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 8px; margin: 15px 0; font-family: 'Courier New', monospace;">
+                // Ver historial actual<br>
+                console.log(conversationHistory);<br><br>
+                
+                // Ver número de interacciones<br>
+                console.log(`${conversationHistory.length / 2} intercambios guardados`);
+            </div>
+            
+            <div class="warning">
+                <strong>⚠️ Nota:</strong> Verás mensajes en la consola como:<br>
+                <code style="background: white; color: #333; padding: 5px 10px; display: inline-block; margin-top: 5px;">💬 Historial de conversación: 1 intercambios guardados</code><br>
+                <code style="background: white; color: #333; padding: 5px 10px; display: inline-block; margin-top: 5px;">💬 Historial de conversación: 2 intercambios guardados</code><br>
+                Esto confirma que el historial está funcionando.
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>🎯 Otras Preguntas de Prueba</h2>
+            
+            <p>Prueba estas preguntas para verificar consistencia:</p>
+            
+            <div class="question">
+                ❓ "¿Cuántas vacantes se hired en 2025?"
+            </div>
+            <div class="question">
+                ❓ "Total de hires en 2025"
+            </div>
+            <div class="question">
+                ❓ "Número de contrataciones en 2025"
+            </div>
+            
+            <div class="expected" style="margin-top: 15px;">
+                ✅ Las 3 deben dar el MISMO número (ej: 182 vacantes)
+            </div>
+        </div>
+        
+        <div class="actions">
+            <a href="http://localhost:8000/" class="button" target="_blank">
+                🚀 Abrir Chatbot
+            </a>
+            <a href="http://localhost:8000/HISTORIAL-CONVERSACION.md" class="button button-secondary" target="_blank">
+                📖 Ver Documentación Técnica
+            </a>
+        </div>
+    </div>
+</body>
+</html>
+
