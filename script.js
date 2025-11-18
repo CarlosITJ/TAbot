@@ -224,7 +224,7 @@ async function getBotResponse(userMessage) {
                     updateLoadingIndicator('🧠 Generando respuesta inteligente...');
                     const aiResponse = await analyzeDocumentsWithAI(userMessage);
                     if (aiResponse) {
-                        console.log('✅ Respuesta de xAI con documentos recibida');
+                        console.log('✅ Respuesta de Gemini con documentos recibida');
                         updateLoadingIndicator('✨ Preparando respuesta final...');
 
                         // Agregar nota sobre qué documentos se consultaron y cómo fueron seleccionados
@@ -256,7 +256,7 @@ async function getBotResponse(userMessage) {
                 updateLoadingIndicator('🧠 Generando respuesta inteligente...');
                 const aiResponse = await analyzeDocumentsWithAI(userMessage);
                 if (aiResponse) {
-                    console.log('✅ Respuesta de xAI con documentos recibida');
+                    console.log('✅ Respuesta de Gemini con documentos recibida');
                     updateLoadingIndicator('✨ Preparando respuesta...');
                     return aiResponse;
                 }
@@ -4493,19 +4493,19 @@ function loadApiConfig() {
 function saveApiConfig() {
     const clientId = clientIdInput.value.trim();
     const apiKey = apiKeyInput.value.trim();
-    const xaiKey = geminiApiKeyInput.value.trim();
+    const geminiKey = geminiApiKeyInput.value.trim();
 
     console.log('Intentando guardar configuración...', {
         clientId: clientId ? clientId.substring(0, 20) + '...' : 'vacío',
         hasApiKey: !!apiKey,
-        hasXaiKey: !!xaiKey
+        hasGeminiKey: !!geminiKey
     });
 
-    // Validar xAI API Key si está presente
-    if (xaiKey) {
-        const xaiValidation = validateGeminiApiKey(xaiKey);
-        if (!xaiValidation.isValid) {
-            apiStatus.innerHTML = `<div class="error">✗ ${xaiValidation.error}</div>`;
+    // Validar Gemini API Key si está presente
+    if (geminiKey) {
+        const geminiValidation = validateGeminiApiKey(geminiKey);
+        if (!geminiValidation.isValid) {
+            apiStatus.innerHTML = `<div class="error">✗ ${geminiValidation.error}</div>`;
             apiStatus.className = 'drive-status error';
             return;
         }
@@ -4521,9 +4521,9 @@ function saveApiConfig() {
         }
     }
 
-    // Validar que al menos haya Client ID o xAI Key
-    if (!clientId && !xaiKey) {
-        apiStatus.innerHTML = '<div class="error">✗ Por favor, ingresa al menos el Client ID de Google o la API Key de xAI</div>';
+    // Validar que al menos haya Client ID o Gemini Key
+    if (!clientId && !geminiKey) {
+        apiStatus.innerHTML = '<div class="error">✗ Por favor, ingresa al menos el Client ID de Google o la API Key de Gemini</div>';
         apiStatus.className = 'drive-status error';
         return;
     }
@@ -4534,7 +4534,7 @@ function saveApiConfig() {
         // Guardar en variables
         googleClientId = clientId;
         googleApiKey = apiKey;
-        geminiApiKey = xaiKey;
+        geminiApiKey = geminiKey;
         
         // Guardar en localStorage
         if (clientId) {
@@ -4549,8 +4549,8 @@ function saveApiConfig() {
             localStorage.removeItem('google_api_key');
         }
         
-        if (xaiKey) {
-            localStorage.setItem('gemini_api_key', xaiKey);
+        if (geminiKey) {
+            localStorage.setItem('gemini_api_key', geminiKey);
         } else {
             localStorage.removeItem('gemini_api_key');
         }
@@ -4566,7 +4566,7 @@ function saveApiConfig() {
         // Configuración guardada exitosamente
         let successMessage = '✓ Configuración guardada correctamente.';
         if (clientId) successMessage += ' Puedes iniciar sesión con Google.';
-        if (xaiKey) successMessage += ' 🤖 IA de xAI (Grok) activada!';
+        if (geminiKey) successMessage += ' 🤖 IA de Gemini activada!';
         
         apiStatus.innerHTML = `<div class="success">${successMessage}</div>`;
         apiStatus.className = 'drive-status success';
@@ -4693,10 +4693,10 @@ async function callGemini(messages, temperature = 0.7) {
     }
 }
 
-// Función para analizar documentos con xAI
+// Función para analizar documentos con Gemini AI
 async function analyzeDocumentsWithAI(userMessage) {
     if (!geminiApiKey) {
-        return null; // No hay xAI configurado
+        return null; // No hay Gemini configurado
     }
     
     if (driveDocuments.length === 0) {
