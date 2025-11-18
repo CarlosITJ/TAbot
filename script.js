@@ -6118,3 +6118,345 @@ loadConversation();
 // Enfocar el input al cargar
 userInput.focus();
 
+// ========================================
+// RELOJES DE ZONA HORARIA
+// ========================================
+
+function updateTimezoneClocks() {
+    try {
+        const now = new Date();
+        
+        // Obtener elementos
+        const pstElement = document.getElementById('pst-time');
+        const cstElement = document.getElementById('cst-time');
+        const estElement = document.getElementById('est-time');
+        
+        // Verificar que existen los elementos
+        if (!pstElement || !cstElement || !estElement) {
+            console.error('No se encontraron los elementos de reloj');
+            return;
+        }
+        
+        // PST (UTC-8) - Pacific Standard Time
+        const pstTime = now.toLocaleTimeString('en-US', { 
+            timeZone: 'America/Los_Angeles',
+            hour12: true, 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+        pstElement.textContent = pstTime;
+        
+        // CST (UTC-6) - Central Standard Time
+        const cstTime = now.toLocaleTimeString('en-US', { 
+            timeZone: 'America/Chicago',
+            hour12: true, 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+        cstElement.textContent = cstTime;
+        
+        // EST (UTC-5) - Eastern Standard Time
+        const estTime = now.toLocaleTimeString('en-US', { 
+            timeZone: 'America/New_York',
+            hour12: true, 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+        });
+        estElement.textContent = estTime;
+        
+        console.log('Relojes actualizados:', { pst: pstTime, cst: cstTime, est: estTime });
+    } catch (error) {
+        console.error('Error actualizando relojes:', error);
+    }
+}
+
+// ========================================
+// FUNCIONALIDAD DE ARRASTRE (DRAG & DROP)
+// ========================================
+
+function makeDraggable() {
+    const clocksElement = document.querySelector('.timezone-clocks');
+    if (!clocksElement) {
+        console.error('No se encontró el elemento de relojes');
+        return;
+    }
+    
+    let isDragging = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+    
+    // Cargar posición guardada
+    const savedPosition = localStorage.getItem('clockPosition');
+    if (savedPosition) {
+        const { x, y } = JSON.parse(savedPosition);
+        clocksElement.style.left = x + 'px';
+        clocksElement.style.top = y + 'px';
+        clocksElement.style.right = 'auto';
+        xOffset = x;
+        yOffset = y;
+    }
+    
+    clocksElement.addEventListener('mousedown', dragStart);
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('mouseup', dragEnd);
+    
+    // Touch support para dispositivos móviles
+    clocksElement.addEventListener('touchstart', dragStart);
+    document.addEventListener('touchmove', drag);
+    document.addEventListener('touchend', dragEnd);
+    
+    function dragStart(e) {
+        if (e.type === 'touchstart') {
+            initialX = e.touches[0].clientX - xOffset;
+            initialY = e.touches[0].clientY - yOffset;
+        } else {
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+        }
+        
+        if (e.target === clocksElement || clocksElement.contains(e.target)) {
+            isDragging = true;
+            clocksElement.classList.add('dragging');
+        }
+    }
+    
+    function drag(e) {
+        if (isDragging) {
+            e.preventDefault();
+            
+            if (e.type === 'touchmove') {
+                currentX = e.touches[0].clientX - initialX;
+                currentY = e.touches[0].clientY - initialY;
+            } else {
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+            }
+            
+            xOffset = currentX;
+            yOffset = currentY;
+            
+            // Límites de la pantalla
+            const maxX = window.innerWidth - clocksElement.offsetWidth;
+            const maxY = window.innerHeight - clocksElement.offsetHeight;
+            
+            xOffset = Math.max(0, Math.min(xOffset, maxX));
+            yOffset = Math.max(0, Math.min(yOffset, maxY));
+            
+            setTranslate(xOffset, yOffset, clocksElement);
+        }
+    }
+    
+    function dragEnd(e) {
+        if (isDragging) {
+            initialX = currentX;
+            initialY = currentY;
+            isDragging = false;
+            clocksElement.classList.remove('dragging');
+            
+            // Guardar posición en localStorage
+            localStorage.setItem('clockPosition', JSON.stringify({
+                x: xOffset,
+                y: yOffset
+            }));
+        }
+    }
+    
+    function setTranslate(xPos, yPos, el) {
+        el.style.left = xPos + 'px';
+        el.style.top = yPos + 'px';
+        el.style.right = 'auto';
+    }
+}
+
+// ========================================
+// CALENDARIO MENSUAL
+// ========================================
+
+function generateCalendar() {
+    const calendarDays = document.getElementById('calendar-days');
+    const calendarMonth = document.getElementById('calendar-month');
+    
+    if (!calendarDays || !calendarMonth) {
+        console.error('No se encontraron los elementos del calendario');
+        return;
+    }
+    
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const today = now.getDate();
+    
+    // Nombres de meses en español
+    const monthNames = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    
+    // Actualizar encabezado
+    calendarMonth.textContent = `${monthNames[month]} ${year}`;
+    
+    // Obtener primer día del mes y días totales
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    
+    // Limpiar calendario
+    calendarDays.innerHTML = '';
+    
+    // Días del mes anterior (vacíos o mostrados)
+    for (let i = firstDay - 1; i >= 0; i--) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'calendar-day other-month';
+        dayDiv.textContent = daysInPrevMonth - i;
+        calendarDays.appendChild(dayDiv);
+    }
+    
+    // Días del mes actual
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'calendar-day';
+        dayDiv.textContent = day;
+        
+        // Marcar día actual
+        if (day === today) {
+            dayDiv.classList.add('today');
+        }
+        
+        calendarDays.appendChild(dayDiv);
+    }
+    
+    // Completar con días del siguiente mes
+    const totalCells = calendarDays.children.length;
+    const remainingCells = 42 - totalCells; // 6 semanas * 7 días
+    
+    for (let day = 1; day <= remainingCells; day++) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'calendar-day other-month';
+        dayDiv.textContent = day;
+        calendarDays.appendChild(dayDiv);
+    }
+    
+    console.log('Calendario generado:', monthNames[month], year);
+}
+
+// ========================================
+// HACER CALENDARIO ARRASTRABLE
+// ========================================
+
+function makeCalendarDraggable() {
+    const calendarElement = document.querySelector('.monthly-calendar');
+    if (!calendarElement) {
+        console.error('No se encontró el elemento del calendario');
+        return;
+    }
+    
+    let isDragging = false;
+    let currentX;
+    let currentY;
+    let initialX;
+    let initialY;
+    let xOffset = 0;
+    let yOffset = 0;
+    
+    // Cargar posición guardada
+    const savedPosition = localStorage.getItem('calendarPosition');
+    if (savedPosition) {
+        const { x, y } = JSON.parse(savedPosition);
+        calendarElement.style.left = x + 'px';
+        calendarElement.style.top = y + 'px';
+        xOffset = x;
+        yOffset = y;
+    }
+    
+    calendarElement.addEventListener('mousedown', dragStart);
+    document.addEventListener('mousemove', drag);
+    document.addEventListener('mouseup', dragEnd);
+    
+    // Touch support para dispositivos móviles
+    calendarElement.addEventListener('touchstart', dragStart);
+    document.addEventListener('touchmove', drag);
+    document.addEventListener('touchend', dragEnd);
+    
+    function dragStart(e) {
+        if (e.type === 'touchstart') {
+            initialX = e.touches[0].clientX - xOffset;
+            initialY = e.touches[0].clientY - yOffset;
+        } else {
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+        }
+        
+        if (e.target === calendarElement || calendarElement.contains(e.target)) {
+            isDragging = true;
+            calendarElement.classList.add('dragging');
+        }
+    }
+    
+    function drag(e) {
+        if (isDragging) {
+            e.preventDefault();
+            
+            if (e.type === 'touchmove') {
+                currentX = e.touches[0].clientX - initialX;
+                currentY = e.touches[0].clientY - initialY;
+            } else {
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+            }
+            
+            xOffset = currentX;
+            yOffset = currentY;
+            
+            // Límites de la pantalla
+            const maxX = window.innerWidth - calendarElement.offsetWidth;
+            const maxY = window.innerHeight - calendarElement.offsetHeight;
+            
+            xOffset = Math.max(0, Math.min(xOffset, maxX));
+            yOffset = Math.max(0, Math.min(yOffset, maxY));
+            
+            setTranslate(xOffset, yOffset, calendarElement);
+        }
+    }
+    
+    function dragEnd(e) {
+        if (isDragging) {
+            initialX = currentX;
+            initialY = currentY;
+            isDragging = false;
+            calendarElement.classList.remove('dragging');
+            
+            // Guardar posición en localStorage
+            localStorage.setItem('calendarPosition', JSON.stringify({
+                x: xOffset,
+                y: yOffset
+            }));
+        }
+    }
+    
+    function setTranslate(xPos, yPos, el) {
+        el.style.left = xPos + 'px';
+        el.style.top = yPos + 'px';
+    }
+}
+
+// Inicializar relojes después de que el DOM esté listo
+setTimeout(() => {
+    console.log('Iniciando relojes...');
+    updateTimezoneClocks();
+    setInterval(updateTimezoneClocks, 1000);
+    makeDraggable();
+    console.log('Relojes arrastrables activados');
+    
+    console.log('Iniciando calendario...');
+    generateCalendar();
+    makeCalendarDraggable();
+    console.log('Calendario arrastrable activado');
+}, 100);
+

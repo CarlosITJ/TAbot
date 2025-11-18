@@ -3,8 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chatbot Simple</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Balam AI</title>
+    <!-- Fuente personalizada de Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2033">
     <!-- Solo cargamos Google Identity Services, NO gapi (causa errores con OAuth 2.0 nuevo) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- PDF.js para lectura de PDFs -->
@@ -15,13 +19,48 @@
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 </head>
 <body>
+    <!-- Relojes de zona horaria (arrastrables) -->
+    <div class="timezone-clocks" title="Arrastra para mover">
+        <div class="clock-item">
+            <span class="clock-label">PST</span>
+            <span class="clock-time" id="pst-time">--:--:--</span>
+        </div>
+        <div class="clock-item">
+            <span class="clock-label">CST</span>
+            <span class="clock-time" id="cst-time">--:--:--</span>
+        </div>
+        <div class="clock-item">
+            <span class="clock-label">EST</span>
+            <span class="clock-time" id="est-time">--:--:--</span>
+        </div>
+    </div>
+    
+    <!-- Calendario mensual (arrastrable) -->
+    <div class="monthly-calendar" title="Arrastra para mover">
+        <div class="calendar-header">
+            <span class="calendar-month" id="calendar-month">Mes Año</span>
+        </div>
+        <div class="calendar-weekdays">
+            <span>Dom</span>
+            <span>Lun</span>
+            <span>Mar</span>
+            <span>Mié</span>
+            <span>Jue</span>
+            <span>Vie</span>
+            <span>Sáb</span>
+        </div>
+        <div class="calendar-days" id="calendar-days">
+            <!-- Los días se generarán dinámicamente -->
+        </div>
+    </div>
+    
     <div class="chat-container">
         <div class="chat-header">
-            <h1>🤖 Chatbot Simple</h1>
+            <h1>Balam AI 🐆</h1>
             <div id="aiIndicator" class="ai-indicator" style="display: none;">
-                <span class="ai-badge">⚡ IA Activa</span>
+                <span class="ai-badge">🤖 IA Activa</span>
             </div>
-            <button id="settingsButton" class="settings-button" title="Configuración">⚙️</button>
+            <button id="settingsButton" class="settings-button" title="Configuración">🐾</button>
         </div>
         <!-- Panel de configuración de Google Drive -->
         <div class="settings-panel" id="settingsPanel" style="display: none;">
@@ -155,7 +194,7 @@
         </div>
     </div>
     <!-- NO cargamos api.js - solo usamos Google Identity Services -->
-    <script src="script.js"></script>
+    <script src="script.js?v=2032"></script>
 </body>
 </html>
 
