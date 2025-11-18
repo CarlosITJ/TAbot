@@ -40,7 +40,7 @@ const tabButtons = document.querySelectorAll('.tab-button');
 const tabContents = document.querySelectorAll('.tab-content');
 const clientIdInput = document.getElementById('clientId');
 const apiKeyInput = document.getElementById('apiKey');
-const xaiApiKeyInput = document.getElementById('xaiApiKey');
+const geminiApiKeyInput = document.getElementById('geminiApiKey');
 const saveApiConfigButton = document.getElementById('saveApiConfigButton');
 const signInButton = document.getElementById('signInButton');
 const signOutButton = document.getElementById('signOutButton');
@@ -136,7 +136,7 @@ async function getBotResponse(userMessage) {
 
     console.log('🔍 getBotResponse llamada:', {
         message: userMessage,
-        xaiConfigured: !!xaiApiKey,
+        xaiConfigured: !!geminiApiKey,
         metadataAvailable: documentMetadata.length,
         documentsLoaded: driveDocuments.length
     });
@@ -202,7 +202,7 @@ async function getBotResponse(userMessage) {
     }
 
     // PRIORIDAD 2: Si hay xAI configurado, usar IA con búsqueda inteligente
-    if (xaiApiKey) {
+    if (geminiApiKey) {
         console.log('✅ xAI está configurado, intentando usar IA...');
         updateLoadingIndicator('🔍 Buscando documentos relevantes...');
         try {
@@ -3749,7 +3749,7 @@ async function findRelevantDocumentsWithAI(query, metadata) {
         return [];
     }
 
-    if (!xaiApiKey) {
+    if (!geminiApiKey) {
         console.log('⚠️ xAI no disponible, usando búsqueda por keywords');
         return findRelevantDocumentsByKeywords(query, metadata);
     }
@@ -3797,7 +3797,7 @@ NÚMEROS DE DOCUMENTOS RELEVANTES:`;
             }
         ];
 
-        const response = await callXAI(messages, 0.3); // Temperatura baja para precisión
+        const response = await callGemini(messages, 0.3); // Temperatura baja para precisión
 
         console.log(`🤖 xAI respuesta: "${response}"`);
 
@@ -4013,27 +4013,27 @@ async function loadDocumentsMetadata(files) {
 // Variables de configuración de API
 let googleClientId = null;
 let googleApiKey = null;
-let xaiApiKey = null;
+let geminiApiKey = null;
 let isAuthenticated = false;
 
-// Función para validar API Key de xAI
-function validateXaiApiKey(apiKey) {
+// Función para validar API Key de Gemini
+function validateGeminiApiKey(apiKey) {
     if (!apiKey || typeof apiKey !== 'string') {
-        return { isValid: false, error: 'La API Key de xAI es requerida' };
+        return { isValid: false, error: 'La API Key de Gemini es requerida' };
     }
 
     const trimmed = apiKey.trim();
     if (trimmed.length === 0) {
-        return { isValid: false, error: 'La API Key de xAI no puede estar vacía' };
+        return { isValid: false, error: 'La API Key de Gemini no puede estar vacía' };
     }
 
-    // xAI keys typically start with "xai-"
-    if (!trimmed.startsWith('xai-')) {
-        return { isValid: false, error: 'La API Key de xAI debe comenzar con "xai-"' };
+    // Gemini/Google AI keys typically start with "AIza"
+    if (!trimmed.startsWith('AIza')) {
+        return { isValid: false, error: 'La API Key de Gemini debe comenzar con "AIza"' };
     }
 
-    if (trimmed.length < 20) {
-        return { isValid: false, error: 'La API Key de xAI parece ser demasiado corta' };
+    if (trimmed.length < 30) {
+        return { isValid: false, error: 'La API Key de Gemini parece ser demasiado corta' };
     }
 
     return { isValid: true };
@@ -4149,7 +4149,7 @@ function getAccessToken() {
 
 // Función para actualizar indicador de IA
 function updateAIIndicator() {
-    if (xaiApiKey) {
+    if (geminiApiKey) {
         aiIndicator.style.display = 'block';
     } else {
         aiIndicator.style.display = 'none';
@@ -4462,7 +4462,7 @@ function hasSavedConversation() {
 function loadApiConfig() {
     googleClientId = localStorage.getItem('google_client_id');
     googleApiKey = localStorage.getItem('google_api_key');
-    xaiApiKey = localStorage.getItem('xai_api_key');
+    geminiApiKey = localStorage.getItem('gemini_api_key');
     
     if (googleClientId) {
         clientIdInput.value = googleClientId;
@@ -4470,8 +4470,8 @@ function loadApiConfig() {
     if (googleApiKey) {
         apiKeyInput.value = googleApiKey;
     }
-    if (xaiApiKey) {
-        xaiApiKeyInput.value = xaiApiKey;
+    if (geminiApiKey) {
+        geminiApiKeyInput.value = geminiApiKey;
     }
     
     // Verificar si hay token guardado
@@ -4493,7 +4493,7 @@ function loadApiConfig() {
 function saveApiConfig() {
     const clientId = clientIdInput.value.trim();
     const apiKey = apiKeyInput.value.trim();
-    const xaiKey = xaiApiKeyInput.value.trim();
+    const xaiKey = geminiApiKeyInput.value.trim();
 
     console.log('Intentando guardar configuración...', {
         clientId: clientId ? clientId.substring(0, 20) + '...' : 'vacío',
@@ -4503,7 +4503,7 @@ function saveApiConfig() {
 
     // Validar xAI API Key si está presente
     if (xaiKey) {
-        const xaiValidation = validateXaiApiKey(xaiKey);
+        const xaiValidation = validateGeminiApiKey(xaiKey);
         if (!xaiValidation.isValid) {
             apiStatus.innerHTML = `<div class="error">✗ ${xaiValidation.error}</div>`;
             apiStatus.className = 'drive-status error';
@@ -4534,7 +4534,7 @@ function saveApiConfig() {
         // Guardar en variables
         googleClientId = clientId;
         googleApiKey = apiKey;
-        xaiApiKey = xaiKey;
+        geminiApiKey = xaiKey;
         
         // Guardar en localStorage
         if (clientId) {
@@ -4550,9 +4550,9 @@ function saveApiConfig() {
         }
         
         if (xaiKey) {
-            localStorage.setItem('xai_api_key', xaiKey);
+            localStorage.setItem('gemini_api_key', xaiKey);
         } else {
-            localStorage.removeItem('xai_api_key');
+            localStorage.removeItem('gemini_api_key');
         }
         
         // Verificar que se guardó correctamente
@@ -4605,76 +4605,97 @@ async function initGoogleAPI() {
 }
 
 // ========================================
-// INTEGRACIÓN CON xAI (GROK) - IA INTELIGENTE
+// INTEGRACIÓN CON GEMINI (GOOGLE AI) - IA INTELIGENTE
 // ========================================
 
-// Función para llamar a la API de xAI (Grok)
-async function callXAI(messages, temperature = 0.7) {
-    if (!xaiApiKey) {
-        console.error('❌ API Key de xAI no configurada');
-        throw new Error('API Key de xAI no configurada');
+// Función para llamar a la API de Gemini (Google AI)
+async function callGemini(messages, temperature = 0.7) {
+    if (!geminiApiKey) {
+        console.error('❌ API Key de Gemini no configurada');
+        throw new Error('API Key de Gemini no configurada');
     }
     
     try {
-        console.log('🚀 Llamando a xAI (Grok)...', { 
+        console.log('🚀 Llamando a Gemini AI...', { 
             messageCount: messages.length,
-            hasApiKey: !!xaiApiKey,
-            apiKeyPrefix: xaiApiKey.substring(0, 8) + '...'
+            hasApiKey: !!geminiApiKey,
+            apiKeyPrefix: geminiApiKey.substring(0, 10) + '...'
         });
         
+        // Convertir formato de mensajes de OpenAI a formato de Gemini
+        // Gemini usa un formato diferente: array de "contents" con "parts"
+        let conversationHistory = '';
+        for (const msg of messages) {
+            if (msg.role === 'system') {
+                conversationHistory += `Instrucciones del sistema: ${msg.content}\n\n`;
+            } else if (msg.role === 'user') {
+                conversationHistory += `Usuario: ${msg.content}\n\n`;
+            } else if (msg.role === 'assistant') {
+                conversationHistory += `Asistente: ${msg.content}\n\n`;
+            }
+        }
+        
+        // Preparar el request para Gemini
         const requestBody = {
-            model: 'grok-4-fast-reasoning',  // Modelo Grok-4 Fast optimizado para razonamiento (2M tokens context, más rápido y económico)
-            messages: messages,
-            temperature: temperature,
-            max_tokens: 4000, // Aumentado para respuestas más completas
-            stream: false
+            contents: [{
+                parts: [{
+                    text: conversationHistory
+                }]
+            }],
+            generationConfig: {
+                temperature: temperature,
+                maxOutputTokens: 4000,
+                topK: 40,
+                topP: 0.95,
+            }
         };
         
-        console.log('📤 Enviando request:', { 
-            url: 'https://api.x.ai/v1/chat/completions',
-            model: requestBody.model,
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`;
+        
+        console.log('📤 Enviando request a Gemini:', { 
+            model: 'gemini-1.5-pro',
             messagesCount: messages.length 
         });
         
-        const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${xaiApiKey}`
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify(requestBody)
         });
         
-        console.log('📥 Respuesta recibida, status:', response.status);
+        console.log('📥 Respuesta recibida de Gemini, status:', response.status);
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            console.error('❌ Error de xAI:', errorData);
+            console.error('❌ Error de Gemini:', errorData);
             throw new Error(errorData.error?.message || `Error ${response.status}: ${response.statusText}`);
         }
         
         const data = await response.json();
-        console.log('✅ Respuesta de xAI procesada:', {
-            hasChoices: !!data.choices,
-            choicesLength: data.choices?.length,
-            firstMessage: data.choices?.[0]?.message?.content?.substring(0, 100)
+        console.log('✅ Respuesta de Gemini procesada:', {
+            hasCandidates: !!data.candidates,
+            candidatesLength: data.candidates?.length
         });
         
-        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts) {
             console.error('❌ Formato de respuesta inesperado:', data);
-            throw new Error('Formato de respuesta inesperado de xAI');
+            throw new Error('Formato de respuesta inesperado de Gemini');
         }
         
-        return data.choices[0].message.content;
+        // Gemini devuelve el texto en candidates[0].content.parts[0].text
+        const responseText = data.candidates[0].content.parts[0].text;
+        return responseText;
     } catch (error) {
-        console.error('❌ Error al llamar xAI:', error);
+        console.error('❌ Error al llamar Gemini:', error);
         throw error;
     }
 }
 
 // Función para analizar documentos con xAI
 async function analyzeDocumentsWithAI(userMessage) {
-    if (!xaiApiKey) {
+    if (!geminiApiKey) {
         return null; // No hay xAI configurado
     }
     
@@ -5342,7 +5363,7 @@ IMPORTANTE:
 • CUENTA exactamente pero PRESENTA de forma BREVE`
         });
         
-        const response = await callXAI(messages);
+        const response = await callGemini(messages);
         
         // Guardar en historial (sin el contexto largo de documentos, solo pregunta y respuesta)
         conversationHistory.push({
@@ -5371,7 +5392,7 @@ IMPORTANTE:
 
 // Función para obtener respuesta inteligente (sin documentos)
 async function getSmartResponse(userMessage) {
-    if (!xaiApiKey) {
+    if (!geminiApiKey) {
         return null;
     }
     
@@ -5387,7 +5408,7 @@ async function getSmartResponse(userMessage) {
             }
         ];
         
-        const response = await callXAI(messages, 0.8);
+        const response = await callGemini(messages, 0.8);
         return response;
         
     } catch (error) {

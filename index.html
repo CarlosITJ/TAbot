@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Righteous&family=Poppins:wght@600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2033">
+    <link rel="stylesheet" href="style.css?v=2034">
     <!-- Solo cargamos Google Identity Services, NO gapi (causa errores con OAuth 2.0 nuevo) -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <!-- PDF.js para lectura de PDFs -->
@@ -133,14 +133,15 @@
                         </div>
                         
                         <div class="api-field">
-                            <label for="xaiApiKey">🤖 xAI API Key (Para IA inteligente):</label>
+                            <label for="geminiApiKey">🤖 Gemini API Key (Para IA inteligente):</label>
                             <input 
                                 type="password" 
-                                id="xaiApiKey" 
+                                id="geminiApiKey" 
                                 class="drive-input" 
-                                placeholder="xai-..."
+                                placeholder="AIza..."
                             >
-                            <small>Ingresa tu API Key de xAI para habilitar análisis inteligente con Grok</small>
+                            <small>Ingresa tu API Key de Google Gemini para habilitar análisis inteligente con IA</small>
+                            <a href="https://makersuite.google.com/app/apikey" target="_blank" style="font-size: 12px; color: #05a28e; text-decoration: none; display: inline-block; margin-top: 5px;">📖 Obtener API Key de Gemini →</a>
                         </div>
                         
                         <div class="api-actions">
@@ -194,7 +195,7 @@
         </div>
     </div>
     <!-- NO cargamos api.js - solo usamos Google Identity Services -->
-    <script src="script.js?v=2032"></script>
+    <script src="script.js?v=2034"></script>
 </body>
 </html>
 
