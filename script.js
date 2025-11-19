@@ -5,7 +5,7 @@
  * - Interfaz de usuario moderna con estados de carga mejorados
  * - Persistencia de conversaciones en localStorage
  * - Sistema de caché inteligente de documentos (7 días)
- * - Integración con xAI (Grok) para IA inteligente
+ * - Integración con Gemini (Google AI) para IA inteligente
  * - Soporte completo para Google Drive y múltiples formatos de archivo
  * - Validación robusta de entradas y manejo de errores
  *
@@ -58,14 +58,14 @@ let driveFolderId = null;
 
 // Constantes de configuración
 const MAX_DOC_PREVIEW_LENGTH = 2000000; // Caracteres máximos por documento enviados a la IA (2M chars ≈ 500k tokens) - AUMENTADO para Google Sheets grandes con muchos datos
-const TOTAL_CONTEXT_BUDGET = 5000000; // Presupuesto total de caracteres para todos los documentos (5M chars ≈ 1.25M tokens, aprovechando contexto de 2M de Grok-4)
+const TOTAL_CONTEXT_BUDGET = 7000000; // Presupuesto total de caracteres para todos los documentos (7M chars ≈ 1.75M tokens, aprovechando contexto de 2M de Gemini 1.5 Pro)
 const SEARCH_CONTEXT_LENGTH = 200; // Caracteres de contexto antes/después de una coincidencia (aumentado para mejor contexto)
 const MAX_DOCUMENTS_RECOMMENDED = 50; // Número recomendado de documentos a cargar simultáneamente
 const MAX_DOCUMENTS_HARD_LIMIT = 100; // Límite máximo absoluto de documentos
 const BATCH_SIZE = 5; // Número de documentos a cargar en paralelo (para evitar saturar el navegador)
 const METADATA_PREVIEW_LENGTH = 1000; // Caracteres de preview para búsqueda de relevancia
 const TOP_RELEVANT_DOCS = 15; // Número de documentos más relevantes a cargar completamente
-const MAX_DOCS_FOR_AI_SELECTION = 200; // Máximo de documentos a enviar a xAI para selección (para evitar exceder límites de tokens)
+const MAX_DOCS_FOR_AI_SELECTION = 200; // Máximo de documentos a enviar a Gemini para selección (para evitar exceder límites de tokens)
 
 // Respuestas predefinidas del chatbot
 const responses = {
@@ -201,9 +201,9 @@ async function getBotResponse(userMessage) {
         }
     }
 
-    // PRIORIDAD 2: Si hay xAI configurado, usar IA con búsqueda inteligente
+    // PRIORIDAD 2: Si hay Gemini configurado, usar IA con búsqueda inteligente
     if (geminiApiKey) {
-        console.log('✅ xAI está configurado, intentando usar IA...');
+        console.log('✅ Gemini está configurado, intentando usar IA...');
         updateLoadingIndicator('🔍 Buscando documentos relevantes...');
         try {
             // Si hay metadata disponible, buscar documentos relevantes
@@ -211,7 +211,7 @@ async function getBotResponse(userMessage) {
                 console.log(`📚 Buscando en ${documentMetadata.length} documentos indexados...`);
                 updateLoadingIndicator('🤖 Analizando documentos con IA...');
 
-                // Buscar documentos relevantes usando xAI (semántico) o keywords (fallback)
+                // Buscar documentos relevantes usando Gemini (semántico) o keywords (fallback)
                 const relevantDocs = await findRelevantDocumentsWithAI(userMessage, documentMetadata);
 
                 if (relevantDocs.length > 0) {
@@ -220,7 +220,7 @@ async function getBotResponse(userMessage) {
                     const docIds = relevantDocs.map(d => d.id);
                     await loadFullContentForDocs(docIds);
 
-                    console.log(`📄 Usando xAI con ${driveDocuments.length} documentos relevantes...`);
+                    console.log(`📄 Usando Gemini con ${driveDocuments.length} documentos relevantes...`);
                     updateLoadingIndicator('🧠 Generando respuesta inteligente...');
                     const aiResponse = await analyzeDocumentsWithAI(userMessage);
                     if (aiResponse) {
@@ -232,9 +232,9 @@ async function getBotResponse(userMessage) {
                         const moreCount = relevantDocs.length - 3;
 
                         let selectionMethodLabel = '';
-                        if (relevantDocs[0].selectionMethod === 'xAI') {
+                        if (relevantDocs[0].selectionMethod === 'Gemini') {
                             selectionMethodLabel = '🤖 selección semántica con IA';
-                        } else if (relevantDocs[0].selectionMethod === 'xAI+keywords') {
+                        } else if (relevantDocs[0].selectionMethod === 'Gemini+keywords') {
                             selectionMethodLabel = '🤖🔍 IA híbrida (pre-filtrado + semántica)';
                         } else {
                             selectionMethodLabel = '🔍 búsqueda por palabras clave';
@@ -252,7 +252,7 @@ async function getBotResponse(userMessage) {
             }
             // Si no hay metadata pero hay documentos completos cargados, usar esos
             else if (driveDocuments.length > 0) {
-                console.log('📄 Usando xAI con documentos cargados manualmente...');
+                console.log('📄 Usando Gemini con documentos cargados manualmente...');
                 updateLoadingIndicator('🧠 Generando respuesta inteligente...');
                 const aiResponse = await analyzeDocumentsWithAI(userMessage);
                 if (aiResponse) {
@@ -262,15 +262,15 @@ async function getBotResponse(userMessage) {
                 }
             } else {
                 // Sin documentos, informar al usuario que necesita cargar documentos
-                console.log('⚠️ xAI configurado pero sin documentos cargados');
+                console.log('⚠️ Gemini configurado pero sin documentos cargados');
                 return 'Para usar la IA inteligente, por favor carga documentos de Google Drive primero. Haz clic en el botón de configuración (⚙️) y conecta tus documentos.';
             }
         } catch (error) {
-            console.error('❌ Error con xAI, usando fallback:', error);
+            console.error('❌ Error con Gemini, usando fallback:', error);
             // Continuar con los métodos de respaldo
         }
     } else {
-        console.log('⚠️ xAI NO está configurado, usando respuestas predefinidas');
+        console.log('⚠️ Gemini NO está configurado, usando respuestas predefinidas');
     }
     
     // PRIORIDAD 2: Buscar en documentos de Google Drive (búsqueda simple)
@@ -380,7 +380,7 @@ async function sendMessage() {
         let errorMessage = 'Lo siento, hubo un error al procesar tu mensaje. ';
 
         if (error.message && error.message.includes('API Key')) {
-            errorMessage += 'Verifica que tu API Key de xAI sea correcta en la configuración.';
+            errorMessage += 'Verifica que tu API Key de Gemini sea correcta en la configuración.';
         } else if (error.message && error.message.includes('401')) {
             errorMessage += 'Tu API Key no es válida o ha expirado. Verifica la configuración.';
         } else if (error.message && error.message.includes('429')) {
@@ -3743,19 +3743,19 @@ async function readFileMetadata(fileId, fileName, mimeType) {
     }
 }
 
-// Función para buscar documentos relevantes usando xAI (búsqueda semántica inteligente)
+// Función para buscar documentos relevantes usando Gemini (búsqueda semántica inteligente)
 async function findRelevantDocumentsWithAI(query, metadata) {
     if (!metadata || metadata.length === 0) {
         return [];
     }
 
     if (!geminiApiKey) {
-        console.log('⚠️ xAI no disponible, usando búsqueda por keywords');
+        console.log('⚠️ Gemini no disponible, usando búsqueda por keywords');
         return findRelevantDocumentsByKeywords(query, metadata);
     }
 
     try {
-        console.log(`🤖 Usando xAI para seleccionar documentos relevantes de ${metadata.length} disponibles...`);
+        console.log(`🤖 Usando Gemini para seleccionar documentos relevantes de ${metadata.length} disponibles...`);
 
         // Si hay demasiados documentos, primero pre-filtrar con keywords
         let candidateDocs = metadata;
@@ -3763,17 +3763,17 @@ async function findRelevantDocumentsWithAI(query, metadata) {
             console.log(`📊 Demasiados documentos (${metadata.length}), pre-filtrando con keywords a los mejores ${MAX_DOCS_FOR_AI_SELECTION}...`);
             const keywordFiltered = findRelevantDocumentsByKeywords(query, metadata);
             candidateDocs = keywordFiltered.length > 0 ? keywordFiltered.slice(0, MAX_DOCS_FOR_AI_SELECTION) : metadata.slice(0, MAX_DOCS_FOR_AI_SELECTION);
-            console.log(`✓ Pre-filtrado completo: ${candidateDocs.length} candidatos para xAI`);
+            console.log(`✓ Pre-filtrado completo: ${candidateDocs.length} candidatos para Gemini`);
         }
 
-        // Construir lista de documentos para xAI
+        // Construir lista de documentos para Gemini
         let docList = '';
         candidateDocs.forEach((doc, idx) => {
             const preview = doc.preview.substring(0, 200).replace(/\n/g, ' '); // Limitar preview
             docList += `${idx}. "${doc.name}" - ${preview}...\n`;
         });
 
-        // Prompt para xAI
+        // Prompt para Gemini
         const prompt = `Analiza esta pregunta del usuario y selecciona los documentos MÁS RELEVANTES de la lista.
 
 PREGUNTA DEL USUARIO: "${query}"
@@ -3799,11 +3799,11 @@ NÚMEROS DE DOCUMENTOS RELEVANTES:`;
 
         const response = await callGemini(messages, 0.3); // Temperatura baja para precisión
 
-        console.log(`🤖 xAI respuesta: "${response}"`);
+        console.log(`🤖 Gemini respuesta: "${response}"`);
 
         // Parsear respuesta
         if (response.toUpperCase().includes('NINGUNO')) {
-            console.log('❌ xAI no encontró documentos relevantes');
+            console.log('❌ Gemini no encontró documentos relevantes');
             return [];
         }
 
@@ -3818,10 +3818,10 @@ NÚMEROS DE DOCUMENTOS RELEVANTES:`;
         const selectedDocs = selectedIndices.map(idx => ({
             ...candidateDocs[idx],
             relevanceScore: 100 - selectedIndices.indexOf(idx) * 5, // Score basado en orden
-            selectionMethod: metadata.length > MAX_DOCS_FOR_AI_SELECTION ? 'xAI+keywords' : 'xAI'
+            selectionMethod: metadata.length > MAX_DOCS_FOR_AI_SELECTION ? 'Gemini+keywords' : 'Gemini'
         }));
 
-        console.log(`✅ xAI seleccionó ${selectedDocs.length} documentos:`);
+        console.log(`✅ Gemini seleccionó ${selectedDocs.length} documentos:`);
         selectedDocs.forEach((doc, i) => {
             console.log(`  ${i + 1}. ${doc.name}`);
         });
@@ -3829,7 +3829,7 @@ NÚMEROS DE DOCUMENTOS RELEVANTES:`;
         return selectedDocs.slice(0, TOP_RELEVANT_DOCS);
 
     } catch (error) {
-        console.error('❌ Error con xAI para selección de documentos:', error);
+        console.error('❌ Error con Gemini para selección de documentos:', error);
         console.log('⚠️ Usando búsqueda por keywords como fallback');
         return findRelevantDocumentsByKeywords(query, metadata);
     }
@@ -4677,12 +4677,12 @@ async function callGemini(messages, temperature = 0.7) {
             ]
         };
         
-        // Usar gemini-1.5-flash-latest (más rápido y actualizado)
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`;
-        
-        console.log('📤 Enviando request a Gemini:', { 
-            model: 'gemini-1.5-flash-latest',
-            messagesCount: geminiContents.length 
+        // Usar gemini-1.5-pro-latest (mejor para documentos grandes y formatos complejos, 2M token context)
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro-latest:generateContent?key=${geminiApiKey}`;
+
+        console.log('📤 Enviando request a Gemini:', {
+            model: 'gemini-1.5-pro-latest',
+            messagesCount: geminiContents.length
         });
         
         const response = await fetch(url, {
@@ -5144,10 +5144,10 @@ async function analyzeDocumentsWithAI(userMessage) {
             console.log(`✅ Smart filtering aplicado a ${totalFiltered} documento(s)`);
         }
 
-        console.log(`📊 Contexto construido: ${totalCharsUsed.toLocaleString()} caracteres enviados a Grok`);
+        console.log(`📊 Contexto construido: ${totalCharsUsed.toLocaleString()} caracteres enviados a Gemini`);
         console.log(`✅ Enviando ${relevantDocs.length} documento(s) COMPLETO(S) (sin truncamiento interno)`);
-        
-        // Crear mensajes para xAI (con historial de conversación)
+
+        // Crear mensajes para Gemini (con historial de conversación)
         const messages = [
             {
                 role: 'system',
@@ -5420,7 +5420,7 @@ IMPORTANTE:
         return response;
         
     } catch (error) {
-        console.error('Error al analizar con xAI:', error);
+        console.error('Error al analizar con Gemini:', error);
         return null;
     }
 }
@@ -5430,7 +5430,7 @@ async function getSmartResponse(userMessage) {
     if (!geminiApiKey) {
         return null;
     }
-    
+
     try {
         const messages = [
             {
@@ -5442,12 +5442,12 @@ async function getSmartResponse(userMessage) {
                 content: userMessage
             }
         ];
-        
+
         const response = await callGemini(messages, 0.8);
         return response;
-        
+
     } catch (error) {
-        console.error('Error al obtener respuesta de xAI:', error);
+        console.error('Error al obtener respuesta de Gemini:', error);
         return null;
     }
 }
