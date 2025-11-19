@@ -4623,38 +4623,66 @@ async function callGemini(messages, temperature = 0.7) {
         });
         
         // Convertir formato de mensajes de OpenAI a formato de Gemini
-        // Gemini usa un formato diferente: array de "contents" con "parts"
-        let conversationHistory = '';
+        // Gemini requiere un formato específico con role "user" y "model"
+        const geminiContents = [];
+        let systemInstruction = '';
+        
         for (const msg of messages) {
             if (msg.role === 'system') {
-                conversationHistory += `Instrucciones del sistema: ${msg.content}\n\n`;
+                systemInstruction += msg.content + '\n\n';
             } else if (msg.role === 'user') {
-                conversationHistory += `Usuario: ${msg.content}\n\n`;
+                geminiContents.push({
+                    role: 'user',
+                    parts: [{ text: msg.content }]
+                });
             } else if (msg.role === 'assistant') {
-                conversationHistory += `Asistente: ${msg.content}\n\n`;
+                geminiContents.push({
+                    role: 'model',
+                    parts: [{ text: msg.content }]
+                });
             }
         }
         
-        // Preparar el request para Gemini
+        // Si solo hay una instrucción del sistema, la agregamos al primer mensaje de usuario
+        if (systemInstruction && geminiContents.length > 0 && geminiContents[0].role === 'user') {
+            geminiContents[0].parts[0].text = systemInstruction + geminiContents[0].parts[0].text;
+        }
+        
+        // Preparar el request para Gemini usando la API v1
         const requestBody = {
-            contents: [{
-                parts: [{
-                    text: conversationHistory
-                }]
-            }],
+            contents: geminiContents,
             generationConfig: {
                 temperature: temperature,
-                maxOutputTokens: 4000,
+                maxOutputTokens: 8000,
                 topK: 40,
                 topP: 0.95,
-            }
+            },
+            safetySettings: [
+                {
+                    category: 'HARM_CATEGORY_HARASSMENT',
+                    threshold: 'BLOCK_NONE'
+                },
+                {
+                    category: 'HARM_CATEGORY_HATE_SPEECH',
+                    threshold: 'BLOCK_NONE'
+                },
+                {
+                    category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                    threshold: 'BLOCK_NONE'
+                },
+                {
+                    category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+                    threshold: 'BLOCK_NONE'
+                }
+            ]
         };
         
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`;
+        // Usar gemini-1.5-flash-latest (más rápido y actualizado)
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${geminiApiKey}`;
         
         console.log('📤 Enviando request a Gemini:', { 
-            model: 'gemini-1.5-pro',
-            messagesCount: messages.length 
+            model: 'gemini-1.5-flash-latest',
+            messagesCount: geminiContents.length 
         });
         
         const response = await fetch(url, {
@@ -4676,16 +4704,23 @@ async function callGemini(messages, temperature = 0.7) {
         const data = await response.json();
         console.log('✅ Respuesta de Gemini procesada:', {
             hasCandidates: !!data.candidates,
-            candidatesLength: data.candidates?.length
+            candidatesLength: data.candidates?.length,
+            fullResponse: data
         });
         
-        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts) {
+        if (!data.candidates || !data.candidates[0]) {
+            console.error('❌ No hay candidates en la respuesta:', data);
+            throw new Error('No se recibió respuesta de Gemini');
+        }
+        
+        if (!data.candidates[0].content || !data.candidates[0].content.parts) {
             console.error('❌ Formato de respuesta inesperado:', data);
             throw new Error('Formato de respuesta inesperado de Gemini');
         }
         
         // Gemini devuelve el texto en candidates[0].content.parts[0].text
         const responseText = data.candidates[0].content.parts[0].text;
+        console.log('📝 Texto de respuesta:', responseText.substring(0, 200) + '...');
         return responseText;
     } catch (error) {
         console.error('❌ Error al llamar Gemini:', error);
